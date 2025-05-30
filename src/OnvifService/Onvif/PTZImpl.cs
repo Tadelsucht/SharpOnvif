@@ -1,5 +1,6 @@
 ﻿using CoreWCF;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.Extensions.Logging;
 using SharpOnvifCommon;
 using SharpOnvifCommon.PTZ;
 using SharpOnvifServer.PTZ;
@@ -14,6 +15,7 @@ namespace OnvifService.Onvif
         public const string PTZ_NODE_TOKEN = "PTZ_Node_1";
 
         private IServer server;
+        private readonly ILogger<PTZImpl> _logger;
 
         public float Pan { get; set; } = 0.5f;
         public float Tilt { get; set; } = 0.5f;
@@ -24,9 +26,28 @@ namespace OnvifService.Onvif
 
         private Dictionary<string, PTZPreset> Presets { get; } = new Dictionary<string, PTZPreset>();
 
-        public PTZImpl(IServer server)
+        public PTZImpl(IServer server, ILogger<PTZImpl> logger)
         {
             this.server = server;
+            this._logger = logger;
+        }
+
+        [return: MessageParameter(Name = "Capabilities")]
+        public override Capabilities GetServiceCapabilities()
+        {
+            return new Capabilities()
+            {
+                EFlip = true,
+                EFlipSpecified = true,
+                Reverse = true,
+                ReverseSpecified = true,
+                GetCompatibleConfigurations = true,
+                GetCompatibleConfigurationsSpecified = true,
+                MoveStatus = true,
+                MoveStatusSpecified = true,
+                StatusPosition = true,
+                StatusPositionSpecified = true,
+            };
         }
 
         [return: MessageParameter(Name = "PTZStatus")]
@@ -63,13 +84,13 @@ namespace OnvifService.Onvif
                 {
                     this.Pan = Position.PanTilt.x;
                     this.Tilt = Position.PanTilt.y;
-                    LogAction($"PTZ: AbsoluteMove: pan: {Position.PanTilt.x}, tilt: {Position.PanTilt.y}");
+                    _logger.LogInformation($"PTZ: AbsoluteMove: pan: {Position.PanTilt.x}, tilt: {Position.PanTilt.y}");
                 }
 
                 if (Position.Zoom != null)
                 {
                     this.Zoom = Position.Zoom.x;
-                    LogAction($"PTZ: AbsoluteMove: zoom: {Position.Zoom.x}");
+                    _logger.LogInformation($"PTZ: AbsoluteMove: zoom: {Position.Zoom.x}");
                 }
             }
         }
@@ -82,20 +103,20 @@ namespace OnvifService.Onvif
                 {
                     this.Pan += Translation.PanTilt.x;
                     this.Tilt += Translation.PanTilt.y;
-                    LogAction($"PTZ: RelativeMove: panDelta: {Translation.PanTilt.x}, tiltDelta: {Translation.PanTilt.y}");
+                    _logger.LogInformation($"PTZ: RelativeMove: panDelta: {Translation.PanTilt.x}, tiltDelta: {Translation.PanTilt.y}");
                 }
 
                 if (Translation.Zoom != null)
                 {
                     this.Zoom += Translation.Zoom.x;
-                    LogAction($"PTZ: RelativeMove: zoomDelta: {Translation.Zoom.x}");
+                    _logger.LogInformation($"PTZ: RelativeMove: zoomDelta: {Translation.Zoom.x}");
                 }
             }
         }
 
         public override void Stop(string ProfileToken, bool PanTilt, bool Zoom)
         {
-            LogAction($"PTZ: Stop");
+            _logger.LogInformation($"PTZ: Stop");
         }
 
         public override ContinuousMoveResponse ContinuousMove(ContinuousMoveRequest request)
@@ -104,7 +125,7 @@ namespace OnvifService.Onvif
             var zoomStatus = request.Velocity.Zoom != null ? MoveStatus.MOVING : MoveStatus.IDLE;
             this.PanTiltStatus = panTiltStatus;
             this.ZoomStatus = zoomStatus;
-            LogAction($"PTZ: ContinuousMove: panTilt: {panTiltStatus}, zoom {zoomStatus}");
+            _logger.LogInformation($"PTZ: ContinuousMove: panTilt: {panTiltStatus}, zoom {zoomStatus}");
             return new ContinuousMoveResponse();
         }
 
@@ -121,7 +142,7 @@ namespace OnvifService.Onvif
                     Zoom = new Vector1D() { x = Zoom }
                 }
             });
-            LogAction($"PTZ: SetPreset: {request.ProfileToken}/{token}");
+            _logger.LogInformation($"PTZ: SetPreset: {request.ProfileToken}/{token}");
             return new SetPresetResponse(token);
         }
 
@@ -142,11 +163,11 @@ namespace OnvifService.Onvif
                 this.Tilt = preset.PTZPosition.PanTilt.y;
                 this.Zoom = preset.PTZPosition.Zoom.x;
 
-                LogAction($"PTZ: GoToPreset: {ProfileToken}/{PresetToken} pan: {preset.PTZPosition.PanTilt.x}, tilt: {preset.PTZPosition.PanTilt.y}, zoom: {preset.PTZPosition.Zoom.x}");
+                _logger.LogInformation($"PTZ: GoToPreset: {ProfileToken}/{PresetToken} pan: {preset.PTZPosition.PanTilt.x}, tilt: {preset.PTZPosition.PanTilt.y}, zoom: {preset.PTZPosition.Zoom.x}");
             }
             else
             {
-                LogAction($"PTZ: GoToPreset: unknown");
+                _logger.LogInformation($"PTZ: GoToPreset: unknown");
             }
         }
 
@@ -170,7 +191,7 @@ namespace OnvifService.Onvif
 
         public override void GotoHomePosition(string ProfileToken, PTZSpeed Speed)
         {
-            LogAction("PTZ: GoToHomePosition");
+            _logger.LogInformation("PTZ: GoToHomePosition");
         }
 
         private static PTZNode GetMyNode()
@@ -257,58 +278,68 @@ namespace OnvifService.Onvif
         {
             return new GetConfigurationsResponse()
             {
-                PTZConfiguration = new PTZConfiguration[]
+                PTZConfiguration = GetMyPTZConfiguration()
+            };
+        }
+
+        [return: MessageParameter(Name = "PTZConfiguration")]
+        public override GetCompatibleConfigurationsResponse GetCompatibleConfigurations(GetCompatibleConfigurationsRequest request)
+        {
+            return new GetCompatibleConfigurationsResponse()
+            {
+                 PTZConfiguration = GetMyPTZConfiguration()
+            };
+        }
+
+        private PTZConfiguration[] GetMyPTZConfiguration()
+        {
+            return new PTZConfiguration[]
+            {
+                new PTZConfiguration()
                 {
-                    new PTZConfiguration()
+                    Name = "Default",
+                    UseCount = 2,
+                    NodeToken = PTZ_NODE_TOKEN,
+                    DefaultAbsolutePantTiltPositionSpace = SpacesPanTilt.POSITION_GENERIC_SPACE,
+                    DefaultAbsoluteZoomPositionSpace = SpacesZoom.POSITION_GENERIC_SPACE,
+                    DefaultRelativePanTiltTranslationSpace = SpacesPanTilt.TRANSLATION_GENERIC_SPACE,
+                    DefaultRelativeZoomTranslationSpace = SpacesZoom.TRANSLATION_GENERIC_SPACE,
+                    DefaultContinuousPanTiltVelocitySpace = SpacesPanTilt.VELOCITY_GENERIC_SPACE,
+                    DefaultContinuousZoomVelocitySpace = SpacesZoom.VELOCITY_GENERIC_SPACE,
+                    DefaultPTZSpeed = new PTZSpeed()
                     {
-                        Name = "Default",
-                        UseCount = 2,
-                        NodeToken = PTZ_NODE_TOKEN,
-                        DefaultAbsolutePantTiltPositionSpace = SpacesPanTilt.POSITION_GENERIC_SPACE,
-                        DefaultAbsoluteZoomPositionSpace = SpacesZoom.POSITION_GENERIC_SPACE,
-                        DefaultRelativePanTiltTranslationSpace = SpacesPanTilt.TRANSLATION_GENERIC_SPACE,
-                        DefaultRelativeZoomTranslationSpace = SpacesZoom.TRANSLATION_GENERIC_SPACE,
-                        DefaultContinuousPanTiltVelocitySpace = SpacesPanTilt.VELOCITY_GENERIC_SPACE,
-                        DefaultContinuousZoomVelocitySpace = SpacesZoom.VELOCITY_GENERIC_SPACE,
-                        DefaultPTZSpeed = new PTZSpeed()
+                        PanTilt = new Vector2D()
                         {
-                            PanTilt = new Vector2D()
-                            {
-                                x = 0.5f,
-                                y = 0.5f,
-                                space = SpacesPanTilt.SPEED_GENERIC_SPACE
-                            },
-                            Zoom = new Vector1D()
-                            {
-                                x = 0.5f,
-                                space = SpacesZoom.SPEED_GENERIC_SPACE
-                            }
+                            x = 0.5f,
+                            y = 0.5f,
+                            space = SpacesPanTilt.SPEED_GENERIC_SPACE
                         },
-                        DefaultPTZTimeout = OnvifHelpers.GetTimeoutInSeconds(10),
-                        PanTiltLimits = new PanTiltLimits()
+                        Zoom = new Vector1D()
                         {
-                            Range = new Space2DDescription()
-                            {
-                                XRange = new FloatRange() { Min = -1, Max = 1 },
-                                YRange = new FloatRange() { Min = -1, Max = 1 }
-                            }
-                        },
-                        ZoomLimits = new ZoomLimits()
+                            x = 0.5f,
+                            space = SpacesZoom.SPEED_GENERIC_SPACE
+                        }
+                    },
+                    DefaultPTZTimeout = OnvifHelpers.GetTimeoutInSeconds(10),
+                    PanTiltLimits = new PanTiltLimits()
+                    {
+                        Range = new Space2DDescription()
                         {
-                            Range = new Space1DDescription()
-                            {
-                                XRange = new FloatRange() { Min = 0, Max = 1 }
-                            }
-                        },
-                        token = PTZ_NODE_TOKEN
-                    }
+                            XRange = new FloatRange() { Min = -1, Max = 1 },
+                            YRange = new FloatRange() { Min = -1, Max = 1 }
+                        }
+                    },
+                    ZoomLimits = new ZoomLimits()
+                    {
+                        Range = new Space1DDescription()
+                        {
+                            XRange = new FloatRange() { Min = 0, Max = 1 }
+                        }
+                    },
+                    token = PTZ_NODE_TOKEN
                 }
             };
         }
 
-        private static void LogAction(string log)
-        {
-            Console.WriteLine(log);
-        }
     }
 }

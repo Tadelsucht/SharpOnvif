@@ -1,5 +1,8 @@
 ﻿using CoreWCF;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using SharpOnvifCommon;
 using SharpOnvifCommon.PTZ;
 using SharpOnvifServer;
 using SharpOnvifServer.Media;
@@ -12,21 +15,33 @@ namespace OnvifService.Onvif
         public const string AUDIO_SOURCE_TOKEN = "AudioSource_1";
         public const string PROFILE_TOKEN = "Profile_1";
 
-        // TODO: Update to match your video source
         // You can use https://github.com/jimm98y/SharpRealTimeStreaming to stream RTSP
-        private const int VIDEO_WIDTH = 640;
-        private const int VIDEO_HEIGHT = 360;
-        private const int VIDEO_FPS = 25;
-        private const string VIDEO_RTSP_URI = "rtsp://localhost:8554/";
-
-        private const int AUDIO_CHANNELS = 1;
-        private const int AUDIO_SAMPLE_RATE = 44100;
+        private int VideoWidth { get; set; } = 640;
+        private int VideoHeight { get; set; } = 360;
+        private int VideoFps { get; set; } = 25;
+        private string VideoRtspUri { get; set; } = "rtsp://localhost:8554/";
+        private string VideoSnapshotUri { get; set; } = null;
+        private int AudioChannels { get; set; } = 1;
+        private int AudioSampleBitrate { get; set; } = 44100;
 
         private readonly IServer _server;
+        private readonly ILogger<MediaImpl> _logger;
+        private readonly IConfiguration _configuration;
 
-        public MediaImpl(IServer server)
+        public MediaImpl(IServer server, ILogger<MediaImpl> logger, IConfiguration configuration)
         {
             _server = server;
+            _logger = logger;
+            _configuration = configuration;
+
+            VideoWidth = _configuration.GetValue<int>("MediaImpl:VideoWidth");
+            VideoHeight = _configuration.GetValue<int>("MediaImpl:VideoHeight");
+            VideoFps = _configuration.GetValue<int>("MediaImpl:VideoFps");
+            VideoRtspUri = _configuration.GetValue<string>("MediaImpl:VideoRtspUri");
+            VideoSnapshotUri = _configuration.GetValue<string>("MediaImpl:VideoSnapshotUri");
+
+            AudioChannels = _configuration.GetValue<int>("MediaImpl:AudioChannels");
+            AudioSampleBitrate = _configuration.GetValue<int>("MediaImpl:AudioSampleBitrate");
         }
 
         public override GetAudioSourcesResponse GetAudioSources(GetAudioSourcesRequest request)
@@ -38,7 +53,7 @@ namespace OnvifService.Onvif
                     new AudioSource()
                     {
                         token = AUDIO_SOURCE_TOKEN,
-                        Channels = AUDIO_CHANNELS,
+                        Channels = AudioChannels,
                     }
                 }
             };
@@ -65,7 +80,7 @@ namespace OnvifService.Onvif
         {
             return new MediaUri()
             {
-                Uri = $"{_server.GetHttpEndpoint()}/preview"
+                Uri = string.IsNullOrEmpty(VideoSnapshotUri) ? $"{_server.GetHttpEndpoint()}/preview" : VideoSnapshotUri
             };
         }
 
@@ -73,7 +88,7 @@ namespace OnvifService.Onvif
         {
             return new MediaUri()
             {
-                Uri = VIDEO_RTSP_URI,
+                Uri = VideoRtspUri,
             };
         }
 
@@ -81,6 +96,7 @@ namespace OnvifService.Onvif
         {
             return new GetVideoSourcesResponse()
             {
+                // TODO: Update to match your video source
                 VideoSources = new VideoSource[]
                 {
                     new VideoSource()
@@ -88,10 +104,10 @@ namespace OnvifService.Onvif
                         token = VIDEO_SOURCE_TOKEN,
                         Resolution = new VideoResolution()
                         {
-                            Width = VIDEO_WIDTH,
-                            Height = VIDEO_HEIGHT
+                            Width = VideoWidth,
+                            Height = VideoHeight
                         },
-                        Framerate = VIDEO_FPS,
+                        Framerate = VideoFps,
                         Imaging = new ImagingSettings()
                         {
                             Brightness = 100
@@ -129,8 +145,8 @@ namespace OnvifService.Onvif
                     {
                         new VideoResolution() 
                         { 
-                            Width = VIDEO_WIDTH,
-                            Height = VIDEO_HEIGHT
+                            Width = VideoWidth,
+                            Height = VideoHeight
                         }
                     }
                 },
@@ -186,8 +202,117 @@ namespace OnvifService.Onvif
             };
         }
 
-        // TODO: Update to match your video source
-        private static Profile GetMyProfile()
+        [return: MessageParameter(Name = "Options")]
+        public override VideoSourceConfigurationOptions GetVideoSourceConfigurationOptions(string ConfigurationToken, string ProfileToken)
+        {
+            return new VideoSourceConfigurationOptions()
+            {
+                VideoSourceTokensAvailable = new string[] { VIDEO_SOURCE_TOKEN },
+                Extension = new VideoSourceConfigurationOptionsExtension()
+                {
+                    Rotate = new RotateOptions()
+                    {
+                        Reboot = true,
+                        Mode = new RotateMode[] { RotateMode.ON, RotateMode.OFF, RotateMode.AUTO },
+                        DegreeList = new int[] { 0, 90, 180, 270 },
+                        RebootSpecified = true,
+                    }
+                },
+                BoundsRange = new IntRectangleRange()
+                {
+                    XRange = new IntRange() { Min = 0, Max = VideoWidth },
+                    YRange = new IntRange() { Min = 0, Max = VideoHeight },
+                    WidthRange = new IntRange() { Min = 0, Max = VideoWidth },
+                    HeightRange = new IntRange() { Min = 0, Max = VideoHeight }
+                },
+                MaximumNumberOfProfiles = 10,
+                MaximumNumberOfProfilesSpecified = true,
+            };
+        }
+
+        [return: MessageParameter(Name = "Configurations")]
+        public override GetCompatibleVideoEncoderConfigurationsResponse GetCompatibleVideoEncoderConfigurations(GetCompatibleVideoEncoderConfigurationsRequest request)
+        {
+            return new GetCompatibleVideoEncoderConfigurationsResponse()
+            {
+                Configurations = new VideoEncoderConfiguration[]
+                {
+                    GetMyVideoEncoderConfiguration()
+                }
+            };
+        }
+
+        [return: MessageParameter(Name = "Configurations")]
+        public override GetCompatibleAudioDecoderConfigurationsResponse GetCompatibleAudioDecoderConfigurations(GetCompatibleAudioDecoderConfigurationsRequest request)
+        {
+            return new GetCompatibleAudioDecoderConfigurationsResponse()
+            {
+                Configurations = new AudioDecoderConfiguration[]
+                {
+                    new AudioDecoderConfiguration()
+                    {
+                        Name = "AudioDecoder_1",
+                        token = "AudioDecoder_1"
+                    }
+                }
+            };
+        }
+
+        [return: MessageParameter(Name = "Configurations")]
+        public override GetAudioOutputConfigurationsResponse GetAudioOutputConfigurations(GetAudioOutputConfigurationsRequest request)
+        {
+            return new GetAudioOutputConfigurationsResponse()
+            {
+                Configurations = new AudioOutputConfiguration[]
+                 {
+                     new AudioOutputConfiguration()
+                     {
+                          token = "AudioOutput_1",
+                          Name = "AudioOutput_1",
+                          OutputToken = "AudioOutput_1"
+                     }
+                 }
+            };
+        }
+
+        [return: MessageParameter(Name = "Options")]
+        public override AudioEncoderConfigurationOptions GetAudioEncoderConfigurationOptions(string ConfigurationToken, string ProfileToken)
+        {
+            return new AudioEncoderConfigurationOptions()
+            {
+                Options = new AudioEncoderConfigurationOption[]
+                 {
+                     new AudioEncoderConfigurationOption()
+                     {
+                         BitrateList = new int[] { 32, 64, 128 },
+                         Encoding = AudioEncoding.AAC,
+                         SampleRateList = new int[] { 8000, 16000, 32000, 44100 },
+                     }
+                 }
+            };
+        }
+
+        public override void SetVideoEncoderConfiguration(VideoEncoderConfiguration Configuration, bool ForcePersistence)
+        {
+            _logger.LogInformation("MediaImpl: SetVideoEncoderConfiguration");
+        }
+
+        public override void AddPTZConfiguration(string ProfileToken, string ConfigurationToken)
+        {
+            _logger.LogInformation("MediaImpl: AddPTZConfiguration");
+        }
+
+        public override void AddAudioOutputConfiguration(string ProfileToken, string ConfigurationToken)
+        {
+            _logger.LogInformation("MediaImpl: AddAudioOutputConfiguration");
+        }
+
+        public override void AddAudioDecoderConfiguration(string ProfileToken, string ConfigurationToken)
+        {
+            _logger.LogInformation("MediaImpl: AddAudioDecoderConfiguration");
+        }
+
+        private Profile GetMyProfile()
         {
             return new Profile()
             {
@@ -197,66 +322,69 @@ namespace OnvifService.Onvif
                 VideoEncoderConfiguration = GetMyVideoEncoderConfiguration(),
                 AudioSourceConfiguration = GetMyAudioSourceConfiguration(),
                 AudioEncoderConfiguration = GetMyAudioEncoderConfiguration(),
-                PTZConfiguration = GetMyPtzConfiguration(),
-            };
-        }
-
-        // TODO: Update to match your video source
-        private static PTZConfiguration GetMyPtzConfiguration()
-        {
-            return new PTZConfiguration()
-            {
-                NodeToken = PTZImpl.PTZ_NODE_TOKEN,
-                PanTiltLimits = new PanTiltLimits()
+                PTZConfiguration = new PTZConfiguration()
                 {
-                    Range = new Space2DDescription()
+                    NodeToken = PTZImpl.PTZ_NODE_TOKEN,
+                    PanTiltLimits = new PanTiltLimits()
                     {
-                        XRange = new FloatRange() { Min = -1, Max = 1 },
-                        YRange = new FloatRange() { Min = -1, Max = 1 },
-                        URI = SpacesPanTilt.POSITION_GENERIC_SPACE
+                        Range = new Space2DDescription()
+                        {
+                            XRange = new FloatRange() { Min = -1, Max = 1 },
+                            YRange = new FloatRange() { Min = -1, Max = 1 },
+                            URI = SpacesPanTilt.POSITION_GENERIC_SPACE
+                        },
                     },
-                },
-                ZoomLimits = new ZoomLimits()
-                {
-                    Range = new Space1DDescription()
+                    ZoomLimits = new ZoomLimits()
                     {
-                        XRange = new FloatRange() { Min = 0, Max = 1 },
-                        URI = SpacesZoom.POSITION_GENERIC_SPACE
-                    }
-                },
-                DefaultAbsolutePantTiltPositionSpace = SpacesPanTilt.POSITION_GENERIC_SPACE,
-                DefaultAbsoluteZoomPositionSpace = SpacesZoom.POSITION_GENERIC_SPACE,
-                DefaultRelativePanTiltTranslationSpace = SpacesPanTilt.TRANSLATION_GENERIC_SPACE,
-                DefaultRelativeZoomTranslationSpace = SpacesZoom.TRANSLATION_GENERIC_SPACE,
-                DefaultContinuousPanTiltVelocitySpace = SpacesPanTilt.VELOCITY_GENERIC_SPACE,
-                DefaultContinuousZoomVelocitySpace = SpacesZoom.VELOCITY_GENERIC_SPACE,
-                DefaultPTZTimeout = "PT5S",
-                Name = "PTZConfig",
-                UseCount = 1,
+                        Range = new Space1DDescription()
+                        {
+                            XRange = new FloatRange() { Min = 0, Max = 1 },
+                            URI = SpacesZoom.POSITION_GENERIC_SPACE
+                        }
+                    },
+                    DefaultAbsolutePantTiltPositionSpace = SpacesPanTilt.POSITION_GENERIC_SPACE,
+                    DefaultAbsoluteZoomPositionSpace = SpacesZoom.POSITION_GENERIC_SPACE,
+                    DefaultRelativePanTiltTranslationSpace = SpacesPanTilt.TRANSLATION_GENERIC_SPACE,
+                    DefaultRelativeZoomTranslationSpace = SpacesZoom.TRANSLATION_GENERIC_SPACE,
+                    DefaultContinuousPanTiltVelocitySpace = SpacesPanTilt.VELOCITY_GENERIC_SPACE,
+                    DefaultContinuousZoomVelocitySpace = SpacesZoom.VELOCITY_GENERIC_SPACE,
+                    DefaultPTZTimeout = OnvifHelpers.GetTimeoutInSeconds(5),
+                    Name = "PTZConfig",
+                    UseCount = 1,
+                }
             };
         }
 
-        // TODO: Update to match your video source
-        private static VideoSourceConfiguration GetMyVideoSourceConfiguration()
+        private VideoSourceConfiguration GetMyVideoSourceConfiguration()
         {
             return new VideoSourceConfiguration()
             {
                 SourceToken = VIDEO_SOURCE_TOKEN,
                 Name = "VideoSourceConfig",
-                Bounds = new IntRectangle() { x = 0, y = 0, width = VIDEO_WIDTH, height = VIDEO_HEIGHT },
+                Bounds = new IntRectangle() 
+                { 
+                    x = 0,
+                    y = 0,
+                    width = VideoWidth, 
+                    height = VideoHeight 
+                },
                 UseCount = 1
             };
         }
 
         // TODO: Update to match your video source
-        private static VideoEncoderConfiguration GetMyVideoEncoderConfiguration()
+        private VideoEncoderConfiguration GetMyVideoEncoderConfiguration()
         {
             return new VideoEncoderConfiguration()
             {
                 Name = "VideoEncoder_1",
                 UseCount = 1,
                 Encoding = VideoEncoding.H264,
-                Resolution = new VideoResolution() { Width = VIDEO_WIDTH, Height = VIDEO_HEIGHT },
+                Resolution = new VideoResolution()
+                { 
+                    Width = VideoWidth,
+                    Height = VideoHeight
+                },
                 Quality = 5.0f,
                 H264 = new H264Configuration()
                 {
@@ -266,18 +394,18 @@ namespace OnvifService.Onvif
             };
         }
 
-        private static AudioEncoderConfiguration GetMyAudioEncoderConfiguration()
+        private AudioEncoderConfiguration GetMyAudioEncoderConfiguration()
         {
             return new AudioEncoderConfiguration()
             {
                 Encoding = AudioEncoding.AAC,
-                SampleRate = AUDIO_SAMPLE_RATE,
+                SampleRate = AudioSampleBitrate,
                 Name = "AudioSource_1",
                 UseCount = 1
             };
         }
 
-        private static AudioSourceConfiguration GetMyAudioSourceConfiguration()
+        private AudioSourceConfiguration GetMyAudioSourceConfiguration()
         {
             return new AudioSourceConfiguration()
             {
