@@ -1,10 +1,12 @@
 ﻿using CoreWCF;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using SharpOnvifCommon;
 using SharpOnvifServer;
 using SharpOnvifServer.DeviceMgmt;
 using System;
+using System.Linq;
 
 namespace OnvifService.Onvif
 {
@@ -14,11 +16,25 @@ namespace OnvifService.Onvif
 
         private readonly IServer _server;
         private readonly ILogger<DeviceImpl> _logger;
+        private readonly IConfiguration _configuration;
 
-        public DeviceImpl(IServer server, ILogger<DeviceImpl> logger)
+        public string PrimaryIPv4Address { get; private set; }
+        public string PrimaryIPv4DNS { get; private set; }
+        public string PrimaryMACAddress { get; private set; }
+        public string PrimaryNTPAddress { get; private set; }
+        public string PrimaryIPv4Gateway { get; private set; }
+
+        public DeviceImpl(IServer server, ILogger<DeviceImpl> logger, IConfiguration configuration)
         {
             _server = server;
             _logger = logger;
+            _configuration = configuration;
+
+            PrimaryIPv4Address = _configuration.GetValue("DeviceImpl:PrimaryIPv4Address", GetPrimaryIPv4Address());
+            PrimaryIPv4DNS = _configuration.GetValue("DeviceImpl:PrimaryIPv4DNS", GetPrimaryIPv4DNS());
+            PrimaryMACAddress = _configuration.GetValue("DeviceImpl:PrimaryMACAddress", GetPrimaryMACAddress());
+            PrimaryNTPAddress = _configuration.GetValue("DeviceImpl:PrimaryNTPAddress", GetPrimaryNTPAddress());
+            PrimaryIPv4Gateway = _configuration.GetValue("DeviceImpl:PrimaryIPv4Gateway", GetPrimaryIPv4Gateway());
         }
 
         public override GetCapabilitiesResponse GetCapabilities(GetCapabilitiesRequest request)
@@ -97,11 +113,11 @@ namespace OnvifService.Onvif
         {
             return new DNSInformation()
             {
-                DNSManual = new SharpOnvifServer.DeviceMgmt.IPAddress[]
+                DNSManual = new IPAddress[]
                 {
-                    new SharpOnvifServer.DeviceMgmt.IPAddress()
+                    new IPAddress()
                     {
-                        IPv4Address = NetworkHelpers.GetIPv4NetworkInterfaceDns()
+                        IPv4Address = PrimaryIPv4DNS
                     }
                 }
             };
@@ -111,15 +127,15 @@ namespace OnvifService.Onvif
         {
             return new GetNetworkInterfacesResponse()
             {
-                NetworkInterfaces = new SharpOnvifServer.DeviceMgmt.NetworkInterface[]
+                NetworkInterfaces = new NetworkInterface[]
                 {
-                    new SharpOnvifServer.DeviceMgmt.NetworkInterface()
+                    new NetworkInterface()
                     {
                         Enabled = true,
                         Info = new NetworkInterfaceInfo()
                         {
                             Name = "eth0",
-                            HwAddress = NetworkHelpers.GetPrimaryNetworkInterfaceMAC(),
+                            HwAddress = PrimaryMACAddress,
                         },
                         Link = new NetworkInterfaceLink()
                         {
@@ -134,7 +150,7 @@ namespace OnvifService.Onvif
                                 {
                                     new PrefixedIPv4Address()
                                     {
-                                        Address = NetworkHelpers.GetIPv4NetworkInterface(),
+                                        Address = PrimaryIPv4Address,
                                         PrefixLength = 24
                                     }
                                 },
@@ -153,7 +169,7 @@ namespace OnvifService.Onvif
             {
                 NTPManual = new NetworkHost[]
                 {
-                    new NetworkHost() { IPv4Address = NetworkHelpers.GetIPv4NTPAddress() }
+                    new NetworkHost() { IPv4Address = PrimaryNTPAddress }
                 }
             };
         }
@@ -189,7 +205,7 @@ namespace OnvifService.Onvif
         {
             return new NetworkGateway()
             {
-                IPv4Address = new string[] { NetworkHelpers.GetIPv4NetworkInterfaceGateway() }
+                IPv4Address = new string[] { PrimaryIPv4Gateway }
             };
         }
 
@@ -411,5 +427,127 @@ namespace OnvifService.Onvif
                  }
             };
         }
+
+        #region Network Helpers
+
+        private static System.Net.NetworkInformation.NetworkInterface GetPrimaryNetworkInterface()
+        {
+            return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(
+                i => i.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback &&
+                i.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Tunnel &&
+                i.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+            );
+        }
+
+        public static string GetPrimaryIPv4Address()
+        {
+            string ret = "0.0.0.0";
+            var nic = GetPrimaryNetworkInterface();
+            if (nic != null)
+            {
+                var nicProperties = nic.GetIPProperties();
+                if (nicProperties != null)
+                {
+                    var unicastAddresses = nicProperties.UnicastAddresses;
+                    if (unicastAddresses != null)
+                    {
+                        var unicastAddress = unicastAddresses.FirstOrDefault(x => x.Address != null && x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                        if (unicastAddress != null)
+                        {
+                            if (unicastAddress.Address != null)
+                            {
+                                ret = unicastAddress.Address.ToString();
+                            }
+                        }
+                    }
+                }
+            }
+            return ret;
+        }
+
+        public static string GetPrimaryIPv4DNS()
+        {
+            string ret = "0.0.0.0";
+            var nic = GetPrimaryNetworkInterface();
+            if (nic != null)
+            {
+                var nicProperties = nic.GetIPProperties();
+                if (nicProperties != null)
+                {
+                    var dnsAddresses = nicProperties.DnsAddresses;
+                    if (dnsAddresses != null)
+                    {
+                        var dnsAddress = dnsAddresses.FirstOrDefault(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                        if (dnsAddress != null)
+                        {
+                            ret = dnsAddress.ToString();
+                        }
+                    }
+                }
+            }
+            return ret;
+        }
+
+        public static string GetPrimaryNTPAddress(string ntp = "time.windows.com")
+        {
+            string ret = "0.0.0.0";
+            var dnsHostEntry = System.Net.Dns.GetHostEntry(ntp);
+            if (dnsHostEntry != null)
+            {
+                var addressList = dnsHostEntry.AddressList;
+                if(addressList != null)
+                {
+                    var ntpAddress = addressList.FirstOrDefault(x => x.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                    if(ntpAddress != null)
+                    {
+                        ret = ntpAddress.ToString();
+                    }
+                }
+            }
+            return ret;
+        }
+
+        public static string GetPrimaryIPv4Gateway()
+        {
+            string ret = "0.0.0.0";
+            var nic = GetPrimaryNetworkInterface();
+            if (nic != null)
+            {
+                var nicProperties = nic.GetIPProperties();
+                if (nicProperties != null)
+                {
+                    var gatewayAddresses = nicProperties.GatewayAddresses;
+                    if (gatewayAddresses != null)
+                    {
+                        var gatewayAddress = gatewayAddresses.FirstOrDefault(x => x.Address != null && x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                        if (gatewayAddress != null)
+                        {
+                            if (gatewayAddress.Address != null)
+                            {
+                                ret = gatewayAddress.Address.ToString();
+                            }
+                        }
+                    }
+                }
+            }
+            return ret;
+        }
+
+        public static string GetPrimaryMACAddress()
+        {
+            string ret = "00:00:00:00:00:00";
+            var nic = GetPrimaryNetworkInterface();
+            if (nic != null)
+            {
+                var nicPhysicalAddress = nic.GetPhysicalAddress();
+                if (nicPhysicalAddress != null)
+                {
+                    ret = nicPhysicalAddress.ToString();
+                }
+            }
+            return ret;
+        }
+
+        #endregion // Network Helpers
     }
 }
