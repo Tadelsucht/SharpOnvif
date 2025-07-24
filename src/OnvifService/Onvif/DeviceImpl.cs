@@ -18,6 +18,7 @@ namespace OnvifService.Onvif
         private readonly ILogger<DeviceImpl> _logger;
         private readonly IConfiguration _configuration;
 
+        public string PrimaryNICName { get; private set; }
         public string PrimaryIPv4Address { get; private set; }
         public string PrimaryIPv4DNS { get; private set; }
         public string PrimaryMACAddress { get; private set; }
@@ -30,11 +31,18 @@ namespace OnvifService.Onvif
             _logger = logger;
             _configuration = configuration;
 
-            PrimaryIPv4Address = _configuration.GetValue("DeviceImpl:PrimaryIPv4Address", GetPrimaryIPv4Address());
-            PrimaryIPv4DNS = _configuration.GetValue("DeviceImpl:PrimaryIPv4DNS", GetPrimaryIPv4DNS());
-            PrimaryMACAddress = _configuration.GetValue("DeviceImpl:PrimaryMACAddress", GetPrimaryMACAddress());
-            PrimaryNTPAddress = _configuration.GetValue("DeviceImpl:PrimaryNTPAddress", GetPrimaryNTPAddress());
-            PrimaryIPv4Gateway = _configuration.GetValue("DeviceImpl:PrimaryIPv4Gateway", GetPrimaryIPv4Gateway());
+            PrimaryNICName = _configuration.GetValue("DeviceImpl:PrimaryNICName", "");
+            if (string.IsNullOrEmpty(PrimaryNICName)) PrimaryNICName = GetPrimaryNICName();
+            PrimaryIPv4Address = _configuration.GetValue("DeviceImpl:PrimaryIPv4Address", "");
+            if (string.IsNullOrEmpty(PrimaryIPv4Address)) PrimaryIPv4Address = GetPrimaryIPv4Address();
+            PrimaryIPv4DNS = _configuration.GetValue("DeviceImpl:PrimaryIPv4DNS", "");
+            if (string.IsNullOrEmpty(PrimaryIPv4DNS)) PrimaryIPv4DNS = GetPrimaryIPv4DNS();
+            PrimaryMACAddress = _configuration.GetValue("DeviceImpl:PrimaryMACAddress", "");
+            if (string.IsNullOrEmpty(PrimaryMACAddress)) PrimaryMACAddress = GetPrimaryMACAddress();
+            PrimaryNTPAddress = _configuration.GetValue("DeviceImpl:PrimaryNTPAddress", "");
+            if (string.IsNullOrEmpty(PrimaryNTPAddress)) PrimaryNTPAddress = GetPrimaryNTPAddress();
+            PrimaryIPv4Gateway = _configuration.GetValue("DeviceImpl:PrimaryIPv4Gateway", "");
+            if (string.IsNullOrEmpty(PrimaryIPv4Gateway)) PrimaryIPv4Gateway = GetPrimaryIPv4Gateway();
         }
 
         public override GetCapabilitiesResponse GetCapabilities(GetCapabilitiesRequest request)
@@ -134,7 +142,7 @@ namespace OnvifService.Onvif
                         Enabled = true,
                         Info = new NetworkInterfaceInfo()
                         {
-                            Name = "eth0",
+                            Name = PrimaryNICName,
                             HwAddress = PrimaryMACAddress,
                         },
                         Link = new NetworkInterfaceLink()
@@ -542,8 +550,18 @@ namespace OnvifService.Onvif
                 var nicPhysicalAddress = nic.GetPhysicalAddress();
                 if (nicPhysicalAddress != null)
                 {
-                    ret = nicPhysicalAddress.ToString();
+                    ret = BitConverter.ToString(nicPhysicalAddress.GetAddressBytes()).Replace('-', ':');
                 }
+            }
+            return ret;
+        }
+        private string GetPrimaryNICName()
+        {
+            string ret = "eth0";
+            var nic = GetPrimaryNetworkInterface();
+            if (nic != null)
+            {
+                ret = nic.Name;
             }
             return ret;
         }
