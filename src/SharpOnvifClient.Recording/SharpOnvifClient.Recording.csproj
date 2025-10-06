@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFrameworks>net8.0</TargetFrameworks>
+		<TargetFrameworks>net9.0</TargetFrameworks>
 		<SGenProxyTypes>false</SGenProxyTypes>
 		<SGenVerbose>false</SGenVerbose>
 		<SGenReferences>$([System.Text.RegularExpressions.Regex]::Replace(@(ReferencePath), `(?'pre'[\\/])ref(?'post'[\\/](netstandard|netcoreapp|net)\d+(\.\d+)*[\\/])`, `${pre}lib${post}`))</SGenReferences>
