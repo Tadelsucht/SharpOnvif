@@ -1,10 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.2.11415.280 d18.0
+VisualStudioVersion = 18.2.11415.280
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OnvifService", "OnvifService\OnvifService.csproj", "{B029D3AA-1FF8-4402-A899-E1F5FE0D5855}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SharpOnvifServer", "SharpOnvifServer\SharpOnvifServer.csproj", "{ECCFE09F-E58D-438C-939A-8CA626809315}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{225EDB0F-03E3-40F1-80D5-78FDE53C777E}"
@@ -67,16 +65,18 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SharpOnvifCommon", "SharpOn
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SharpOnvif.Tests", "SharpOnvif.Tests\SharpOnvif.Tests.csproj", "{38CA4204-97AD-424E-8C11-F5940F320BF4}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Samples", "Samples", "{D3222187-8F76-4395-B8E8-733A22FAFC80}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Onvif.Server", "Onvif.Server\Onvif.Server.csproj", "{FB7CAD45-1BEA-78D8-7B58-824821744EB1}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{5F1D5F66-D717-4022-AADE-D2ED3C1648B8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{B029D3AA-1FF8-4402-A899-E1F5FE0D5855}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B029D3AA-1FF8-4402-A899-E1F5FE0D5855}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B029D3AA-1FF8-4402-A899-E1F5FE0D5855}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B029D3AA-1FF8-4402-A899-E1F5FE0D5855}.Release|Any CPU.Build.0 = Release|Any CPU
 		{ECCFE09F-E58D-438C-939A-8CA626809315}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{ECCFE09F-E58D-438C-939A-8CA626809315}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ECCFE09F-E58D-438C-939A-8CA626809315}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -189,9 +189,17 @@ Global
 		{38CA4204-97AD-424E-8C11-F5940F320BF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{38CA4204-97AD-424E-8C11-F5940F320BF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{38CA4204-97AD-424E-8C11-F5940F320BF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FB7CAD45-1BEA-78D8-7B58-824821744EB1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB7CAD45-1BEA-78D8-7B58-824821744EB1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB7CAD45-1BEA-78D8-7B58-824821744EB1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB7CAD45-1BEA-78D8-7B58-824821744EB1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{38CA4204-97AD-424E-8C11-F5940F320BF4} = {5F1D5F66-D717-4022-AADE-D2ED3C1648B8}
+		{FB7CAD45-1BEA-78D8-7B58-824821744EB1} = {D3222187-8F76-4395-B8E8-733A22FAFC80}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {B452BD85-1B80-4BB9-BF59-34EB16E21311}

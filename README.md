@@ -103,7 +103,7 @@ Finally call `app.Run()`:
 app.Run();
 ```
 Your Onvif service should now be discoverable on the network and you should be able to use Onvif Device Manager or similar tool to call your endpoint.
-
+See `Onvif.Server` sample project for a complete example.
 ## SharpOnvifClient
 Onvif client provides NET Framework 4.8.1, NET8.0 and NET10.0 WCF bindings generated using `dotnet-svcutil`. `SimpleOnvifClient` wraps common API calls to get basic information from the camera and includes both Pull Point as well as Basic event subscriptions. 
 
@@ -199,6 +199,7 @@ Call any method on the client, e.g.:
 ```cs
 var deviceInfo = await proxyClient.GetDeviceInformationAsync(new GetDeviceInformationRequest()).ConfigureAwait(false);
 ```
+See `Onvif.Client` sample project for a complete example.
 ## Digest authentication
 Onvif supports two types of Digest authentication. Legacy [WS-UsernameToken](https://docs.oasis-open.org/wss/v1.1/wss-v1.1-spec-pr-UsernameTokenProfile-01.htm) authentication carried inside the SOAP headers and HTTP Digest authentication as defined in [RFC 7616](https://www.rfc-editor.org/rfc/rfc7616). Both types of authentication are now supported on both the client and the server.
 
