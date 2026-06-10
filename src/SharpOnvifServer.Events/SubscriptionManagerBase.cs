@@ -3,7 +3,7 @@ using System;
 
 namespace SharpOnvifServer.Events
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class SubscriptionManagerBase : SubscriptionManager
     {
         public virtual RenewResponse1 Renew(RenewRequest request)

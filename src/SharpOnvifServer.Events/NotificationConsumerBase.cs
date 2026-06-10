@@ -3,7 +3,7 @@ using System;
 
 namespace SharpOnvifServer.Events
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class NotificationConsumerBase : NotificationConsumer
     {
         public virtual void Notify(Notify1 request)

@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Credential
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class CredentialPortBase : CredentialPort
     {
         public virtual AddToBlacklistResponse AddToBlacklist(AddToBlacklistRequest request)

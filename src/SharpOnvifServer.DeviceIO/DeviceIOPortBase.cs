@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.DeviceIO
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class DeviceIOPortBase : DeviceIOPort
     {
         public virtual GetAudioOutputConfigurationResponse GetAudioOutputConfiguration(GetAudioOutputConfigurationRequest request)

@@ -11,7 +11,7 @@ namespace SharpOnvifServer.Events
     /// Because of CoreWCF limitations when multiple services cannot share the binding URI, we have to implement all interfaces that
     ///  should be available on a single endpoint here.
     /// </remarks>
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class EventsBase : NotificationProducer, EventPortType, PullPoint
     {
         #region NotificationProducer

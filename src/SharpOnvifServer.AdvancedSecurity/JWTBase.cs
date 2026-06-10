@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class JWTBase : JWT
     {
         [return: MessageParameter(Name = "Configuration")]

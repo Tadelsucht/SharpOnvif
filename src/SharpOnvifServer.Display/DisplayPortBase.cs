@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Display
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class DisplayPortBase : DisplayPort
     {
         public virtual CreatePaneConfigurationResponse CreatePaneConfiguration(CreatePaneConfigurationRequest request)

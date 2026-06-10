@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Recording
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class RecordingPortBase : RecordingPort
     {
         [return: MessageParameter(Name = "RecordingToken")]

@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Analytics
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class AnalyticsEnginePortBase : AnalyticsEnginePort
     {
         public virtual CreateAnalyticsModulesResponse CreateAnalyticsModules(CreateAnalyticsModulesRequest request)

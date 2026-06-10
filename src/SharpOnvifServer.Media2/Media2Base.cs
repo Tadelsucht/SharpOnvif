@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Media2
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class Media2Base : Media2
     {
         public virtual AddConfigurationResponse AddConfiguration(AddConfigurationRequest request)

@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class TLSServerBase : TLSServer
     {
         public virtual AddCertPathValidationPolicyAssignmentResponse AddCertPathValidationPolicyAssignment(AddCertPathValidationPolicyAssignmentRequest request)

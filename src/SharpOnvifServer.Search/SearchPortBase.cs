@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Search
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class SearchPortBase : SearchPort
     {
         [return: MessageParameter(Name = "Endpoint")]

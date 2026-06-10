@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Media
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class MediaBase : Media
     {
         public virtual void AddAudioDecoderConfiguration(string ProfileToken, string ConfigurationToken)

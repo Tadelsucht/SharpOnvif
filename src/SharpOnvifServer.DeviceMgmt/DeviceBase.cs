@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.DeviceMgmt
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class DeviceBase : Device
     {
         public virtual void AddIPAddressFilter(IPAddressFilter IPAddressFilter)

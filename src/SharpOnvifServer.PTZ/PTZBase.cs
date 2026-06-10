@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.PTZ
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class PTZBase : PTZ
     {
         public virtual void AbsoluteMove(string ProfileToken, PTZVector Position, PTZSpeed Speed)

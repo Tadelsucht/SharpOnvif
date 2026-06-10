@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.ActionEngine
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class ActionEnginePortBase : ActionEnginePort
     {
         public virtual CreateActionsResponse CreateActions(CreateActionsRequest request)

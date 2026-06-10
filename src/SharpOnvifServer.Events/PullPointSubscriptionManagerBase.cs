@@ -3,7 +3,7 @@ using System;
 
 namespace SharpOnvifServer.Events
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class PullPointSubscriptionManagerBase : PullPointSubscription
     {
         public virtual UnsubscribeResponse1 Unsubscribe(UnsubscribeRequest request)

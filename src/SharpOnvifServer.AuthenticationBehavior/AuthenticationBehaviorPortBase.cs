@@ -4,7 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AuthenticationBehavior
 {
-    [DisableMustUnderstandValidation]
+    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
     public class AuthenticationBehaviorPortBase : AuthenticationBehaviorPort
     {
         [return: MessageParameter(Name = "Token")]
