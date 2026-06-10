@@ -201,6 +201,17 @@ namespace SharpOnvifServer.Discovery
                                 _logger.LogDebug($"Sent Discovery response on {nicIPAddress}:\r\n{reply}");
                             }
                         }
+                        catch(SocketException socketEx)
+                        {
+                            if (socketEx.Message.Contains("WSACancelBlockingCall"))
+                            {
+                                _logger.LogInformation($"Discovery request on {nicIPAddress} was cancelled.");
+                            }
+                            else
+                            {
+                                _logger.LogError($"Failed to process Discovery request on {nicIPAddress}: {socketEx.Message}");
+                            }
+                        }
                         catch (Exception ex)
                         {
                             _logger.LogError($"Failed to process Discovery request on {nicIPAddress}: {ex.Message}");

@@ -21,6 +21,7 @@
 
 using CoreWCF;
 using CoreWCF.Web;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
 namespace SharpOnvifServer
@@ -31,6 +32,7 @@ namespace SharpOnvifServer
         /// Returns 400 Bad Request with InvalidArgVal error code.
         /// </summary>
         /// <exception cref="FaultException"></exception>
+        [DoesNotReturn]
         public static void ReturnSenderInvalidArg()
         {
             ReturnSenderError("Argument Value Invalid", "InvalidArgVal");
@@ -40,6 +42,7 @@ namespace SharpOnvifServer
         /// Returns 400 Bad Request with ActionNotSupported error code.
         /// </summary>
         /// <exception cref="FaultException"></exception>
+        [DoesNotReturn]
         public static void ReturnReceiverActionNotSupported()
         {
             ReturnReceiverError("Action Not Supported", "ActionNotSupported");
@@ -49,6 +52,7 @@ namespace SharpOnvifServer
         /// Returns receiver error.
         /// </summary>
         /// <exception cref="FaultException"></exception>
+        [DoesNotReturn]
         public static void ReturnReceiverError(string reason, string subcodeName, string subcodeNamespace = "http://www.onvif.org/ver10/error", HttpStatusCode httpStatusCode = HttpStatusCode.BadRequest)
         {
             WebOperationContext.Current.OutgoingResponse.StatusCode = httpStatusCode; // changes the default 500 status code
@@ -59,6 +63,7 @@ namespace SharpOnvifServer
         /// Returns sender error.
         /// </summary>
         /// <exception cref="FaultException"></exception>
+        [DoesNotReturn]
         public static void ReturnSenderError(string reason, string subcodeName, string subcodeNamespace = "http://www.onvif.org/ver10/error", HttpStatusCode httpStatusCode = HttpStatusCode.BadRequest)
         {
             WebOperationContext.Current.OutgoingResponse.StatusCode = httpStatusCode; // changes the default 500 status code

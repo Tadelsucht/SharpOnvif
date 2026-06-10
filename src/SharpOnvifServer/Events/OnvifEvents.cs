@@ -62,9 +62,9 @@ namespace SharpOnvifServer.Events
         </wsnt:NotificationMessage>
         */
 
-        public static XmlElement[] CreateNotificationMessage(NotificationMessage message)
+        public static XmlElement[] CreateNotificationMessage(NotificationMessage message, string propertyOperation = "Changed")
         {
-            return new XmlElement[] { CreateTopicNode(message), CreateMessageNode(message) };
+            return new XmlElement[] { CreateTopicNode(message), CreateMessageNode(message, propertyOperation) };
         }
 
         private static XmlElement CreateTopicNode(NotificationMessage message)
@@ -84,7 +84,7 @@ namespace SharpOnvifServer.Events
             return topicNode;
         }
 
-        private static XmlElement CreateMessageNode(NotificationMessage message)
+        private static XmlElement CreateMessageNode(NotificationMessage message, string propertyOperation)
         {
             XmlDocument dom = new XmlDocument();
 
@@ -93,15 +93,19 @@ namespace SharpOnvifServer.Events
 
             const string ns = "http://www.onvif.org/ver10/schema";
 
-            XmlElement messageNode = dom.CreateElement("Message", ns);
+            XmlElement messageNode = dom.CreateElement("tt", "Message", ns);
             messageNode.Attributes.Append(CreateAttribute(dom, "UtcTime", OnvifHelpers.DateTimeToString(message.Created)));
-            messageNode.Attributes.Append(CreateAttribute(dom, "PropertyOperation", "Initialized"));
 
-            XmlElement source = dom.CreateElement("Source", ns);
+            if (!string.IsNullOrEmpty(propertyOperation))
+            {
+                messageNode.Attributes.Append(CreateAttribute(dom, "PropertyOperation", propertyOperation));
+            }
+
+            XmlElement source = dom.CreateElement("tt","Source", ns);
 
             foreach (var sourceItem in message.Source)
             {
-                XmlElement simpleItem = dom.CreateElement("SimpleItem", ns);
+                XmlElement simpleItem = dom.CreateElement("tt", "SimpleItem", ns);
                 simpleItem.Attributes.Append(CreateAttribute(dom, "Name", sourceItem.Key));
                 simpleItem.Attributes.Append(CreateAttribute(dom, "Value", sourceItem.Value));
                 source.AppendChild(simpleItem);
@@ -109,11 +113,11 @@ namespace SharpOnvifServer.Events
 
             messageNode.AppendChild(source);
 
-            XmlElement data = dom.CreateElement("Data", ns);
+            XmlElement data = dom.CreateElement("tt", "Data", ns);
 
             foreach (var dataItem in message.Data)
             {
-                XmlElement simpleItem = dom.CreateElement("SimpleItem", ns);
+                XmlElement simpleItem = dom.CreateElement("tt", "SimpleItem", ns);
                 simpleItem.Attributes.Append(CreateAttribute(dom, "Name", dataItem.Key));
                 simpleItem.Attributes.Append(CreateAttribute(dom, "Value", dataItem.Value));
                 data.AppendChild(simpleItem);

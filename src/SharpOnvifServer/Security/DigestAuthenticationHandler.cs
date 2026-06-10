@@ -37,6 +37,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Xml.Serialization;
+using System.Buffers;
 
 namespace SharpOnvifServer.Security
 {
@@ -383,7 +384,7 @@ namespace SharpOnvifServer.Security
         private static async Task<SoapDigestAuth> GetSecurityHeaderFromSoapEnvelopeAsync(HttpRequest request)
         {
             ReadResult requestBodyInBytes = await request.BodyReader.ReadAsync().ConfigureAwait(false);
-            string body = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.FirstSpan);
+            string body = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.ToArray());
             request.BodyReader.AdvanceTo(requestBodyInBytes.Buffer.Start, requestBodyInBytes.Buffer.End);
 
             SoapDigestAuth security = null;
