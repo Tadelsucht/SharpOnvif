@@ -110,7 +110,7 @@ namespace SharpOnvifClient
                 _disableExpect100ContinueBehavior = new DisableExpect100ContinueBehavior();
             }
 
-            _onvifMessageFormatter = new OnvifMessageInspectorBehavior();
+            _onvifMessageFormatter = new OnvifMessageFormatterBehavior();
 
             _onvifUri = onvifUri;
         }
@@ -139,10 +139,8 @@ namespace SharpOnvifClient
                 else
                 {
                     var client = creator(uri);
-                    var channel = client as ClientBase<TChannel>;
-                    if (!channel.Endpoint.EndpointBehaviors.Contains(_onvifMessageFormatter))
-                        channel.Endpoint.EndpointBehaviors.Add(_onvifMessageFormatter);
 
+                    OnvifMessageFormatterBehaviorExtensions.SetMessageFormatter(client, _onvifMessageFormatter);
                     DisableExpect100ContinueBehaviorExtensions.SetDisableExpect100Continue(client, _disableExpect100ContinueBehavior);
 
                     client = OnvifAuthenticationExtensions.SetOnvifAuthentication(client, _credentials, _authentication, _legacyAuth);
@@ -168,6 +166,7 @@ namespace SharpOnvifClient
             { 
                 using (var deviceClient = new DeviceClient(OnvifBindingFactory.CreateBinding(_onvifUri), new EndpointAddress(_onvifUri)))
                 {
+                    deviceClient.SetMessageFormatter(_onvifMessageFormatter);
                     deviceClient.SetDisableExpect100Continue(_disableExpect100ContinueBehavior);
 
                     var services = await deviceClient.GetServicesAsync(includeCapability).ConfigureAwait(false);
@@ -192,6 +191,7 @@ namespace SharpOnvifClient
             {
                 using (var deviceClient = new DeviceClient(OnvifBindingFactory.CreateBinding(_onvifUri), new EndpointAddress(_onvifUri)))
                 {
+                    deviceClient.SetMessageFormatter(_onvifMessageFormatter);
                     deviceClient.SetDisableExpect100Continue(_disableExpect100ContinueBehavior);
 
                     var cameraTime = await deviceClient.GetSystemDateAndTimeAsync().ConfigureAwait(false);

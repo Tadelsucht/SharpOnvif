@@ -19,20 +19,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
-using System.ServiceModel.Channels;
+using System.ServiceModel.Description;
 using System.ServiceModel.Dispatcher;
 
 namespace SharpOnvifClient.Formatter
 {
-    public class OnvifMessageInspector : IClientMessageInspector
+    public class OnvifMessageFormatterBehavior : IEndpointBehavior
     {
-        public void AfterReceiveReply(ref Message reply, object correlationState)
+        private readonly OnvifMessageFormatterInspector clientMessageInspector = new OnvifMessageFormatterInspector();
+
+        public void AddBindingParameters(
+            ServiceEndpoint endpoint,
+            System.ServiceModel.Channels.BindingParameterCollection bindingParameters)
         { }
 
-        public object BeforeSendRequest(ref Message request, System.ServiceModel.IClientChannel channel)
+        public void ApplyDispatchBehavior(ServiceEndpoint endpoint, EndpointDispatcher endpointDispatcher)
+        { }
+
+        public void Validate(ServiceEndpoint endpoint)
+        { }
+
+        public void ApplyClientBehavior(ServiceEndpoint endpoint, ClientRuntime clientRuntime)
         {
-            request = new OnvifMessage(request);
-            return request;
+            clientRuntime.ClientMessageInspectors.Add(clientMessageInspector);
         }
     }
 }

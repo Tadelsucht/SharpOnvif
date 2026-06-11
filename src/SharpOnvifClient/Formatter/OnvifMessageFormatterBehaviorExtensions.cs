@@ -19,29 +19,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
-using System.ServiceModel.Description;
-using System.ServiceModel.Dispatcher;
+using System.ServiceModel;
 
 namespace SharpOnvifClient.Formatter
 {
-    public class OnvifMessageInspectorBehavior : IEndpointBehavior
+    public static class OnvifMessageFormatterBehaviorExtensions
     {
-        private readonly OnvifMessageInspector clientMessageInspector = new OnvifMessageInspector();
-
-        public void AddBindingParameters(
-            ServiceEndpoint endpoint,
-            System.ServiceModel.Channels.BindingParameterCollection bindingParameters)
-        { }
-
-        public void ApplyDispatchBehavior(ServiceEndpoint endpoint, EndpointDispatcher endpointDispatcher)
-        { }
-
-        public void Validate(ServiceEndpoint endpoint)
-        { }
-
-        public void ApplyClientBehavior(ServiceEndpoint endpoint, ClientRuntime clientRuntime)
+        public static void SetMessageFormatter<TChannel>(
+            this ClientBase<TChannel> channel,
+            System.ServiceModel.Description.IEndpointBehavior formatterBehavior = null) where TChannel : class
         {
-            clientRuntime.ClientMessageInspectors.Add(clientMessageInspector);
+            SetMessageFormatter(channel as TChannel, formatterBehavior);
+        }
+
+        public static void SetMessageFormatter<TChannel>(
+           TChannel wcfChannel,
+           System.ServiceModel.Description.IEndpointBehavior formatterBehavior = null) where TChannel : class
+        {
+            var channel = wcfChannel as ClientBase<TChannel>;
+            if (!channel.Endpoint.EndpointBehaviors.Contains(formatterBehavior))
+            {
+                channel.Endpoint.EndpointBehaviors.Add(formatterBehavior);
+            }
         }
     }
 }
