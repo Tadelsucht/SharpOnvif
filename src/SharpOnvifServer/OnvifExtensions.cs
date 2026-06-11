@@ -28,6 +28,7 @@ using SharpOnvifServer.Discovery;
 using SharpOnvifServer.Events;
 using SharpOnvifServer.Security;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO.Pipelines;
 using System.Linq;
@@ -126,7 +127,7 @@ namespace SharpOnvifServer
                 if (context.Request.ContentType != null && !context.Request.ContentType.Contains("action="))
                 {
                     ReadResult requestBodyInBytes = await context.Request.BodyReader.ReadAsync().ConfigureAwait(false);
-                    string body = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.FirstSpan);
+                    string body = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.ToArray());
                     context.Request.BodyReader.AdvanceTo(requestBodyInBytes.Buffer.Start, requestBodyInBytes.Buffer.End);
 
                     XNamespace ns = "http://www.w3.org/2003/05/soap-envelope";
