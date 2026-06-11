@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AppMgmt
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class AppManagementBase : AppManagement
     {
         public virtual ActivateResponse Activate(ActivateRequest request)

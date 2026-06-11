@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Imaging
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class ImagingPortBase : ImagingPort
     {
         [return: MessageParameter(Name = "Preset")]

@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Thermal
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class ThermalPortBase : ThermalPort
     {
         [return: MessageParameter(Name = "Configuration")]

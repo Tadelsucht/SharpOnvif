@@ -19,37 +19,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
-using CoreWCF.Channels;
-using CoreWCF.Description;
-using CoreWCF.Dispatcher;
-using System;
+using System.ServiceModel.Channels;
+using System.ServiceModel.Dispatcher;
 
-namespace SharpOnvifServer
+namespace SharpOnvifClient.Formatter
 {
-    public class OnvifProviderFormatContractMessageAttribute : Attribute, IContractBehavior
+    public class OnvifMessageInspector : IClientMessageInspector
     {
-        private IOperationBehavior _operationBehavior = null;
+        public void AfterReceiveReply(ref Message reply, object correlationState)
+        { }
 
-        public OnvifProviderFormatContractMessageAttribute()
+        public object BeforeSendRequest(ref Message request, System.ServiceModel.IClientChannel channel)
         {
-            _operationBehavior = new OnvifProviderFormatMessageAttribute();
+            request = new OnvifMessage(request);
+            return request;
         }
-
-        public void AddBindingParameters(ContractDescription contractDescription, ServiceEndpoint endpoint, BindingParameterCollection bindingParameters)
-        { }
-
-        public void ApplyClientBehavior(ContractDescription contractDescription, ServiceEndpoint endpoint, ClientRuntime clientRuntime)
-        { }
-
-        public void ApplyDispatchBehavior(ContractDescription contractDescription, ServiceEndpoint endpoint, DispatchRuntime dispatchRuntime)
-        {
-            foreach (OperationDescription opDescription in contractDescription.Operations)
-            {
-                opDescription.OperationBehaviors.Add(_operationBehavior);
-            }
-        }
-
-        public void Validate(ContractDescription contractDescription, ServiceEndpoint endpoint)
-        { }
     }
 }

@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class AdvancedSecurityServiceBase : AdvancedSecurityService
     {
         [return: MessageParameter(Name = "Capabilities")]

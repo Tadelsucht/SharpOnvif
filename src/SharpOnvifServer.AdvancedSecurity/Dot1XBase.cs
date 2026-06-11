@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class Dot1XBase : Dot1X
     {
         [return: MessageParameter(Name = "Dot1XID")]

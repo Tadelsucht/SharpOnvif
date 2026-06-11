@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class KeystoreBase : Keystore
     {
         [return: MessageParameter(Name = "CertificationPathID")]

@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Replay
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class ReplayPortBase : ReplayPort
     {
         [return: MessageParameter(Name = "Configuration")]

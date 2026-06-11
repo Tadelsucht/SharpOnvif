@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AccessRules
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class AccessRulesPortBase : AccessRulesPort
     {
         [return: MessageParameter(Name = "Token")]

@@ -19,10 +19,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
 // SOFTWARE.
 
-using CoreWCF.Channels;
+using System.ServiceModel.Channels;
 using System.Xml;
 
-namespace SharpOnvifServer
+namespace SharpOnvifClient.Formatter
 {
     public class OnvifMessage : Message
     {
@@ -52,7 +52,7 @@ namespace SharpOnvifServer
         {
             return message.GetReaderAtBodyContents();
         }
-
+       
         protected override void OnBodyToString(XmlDictionaryWriter writer)
         {
             message.WriteBodyContents(writer);

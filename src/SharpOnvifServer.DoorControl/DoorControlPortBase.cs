@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.DoorControl
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class DoorControlPortBase : DoorControlPort
     {
         public virtual AccessDoorResponse AccessDoor(AccessDoorRequest request)

@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Provisioning
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class ProvisioningServiceBase : ProvisioningService
     {
         public virtual FocusMoveResponse FocusMove(FocusMoveRequest request)

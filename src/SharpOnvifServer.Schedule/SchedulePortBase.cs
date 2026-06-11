@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Schedule
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class SchedulePortBase : SchedulePort
     {
         [return: MessageParameter(Name = "Token")]

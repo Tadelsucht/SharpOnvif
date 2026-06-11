@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.Uplink
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class UplinkPortBase : UplinkPort
     {
         public virtual DeleteUplinkResponse DeleteUplink(DeleteUplinkRequest request)

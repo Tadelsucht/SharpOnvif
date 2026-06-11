@@ -3,7 +3,8 @@ using System;
 
 namespace SharpOnvifServer.Events
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class PausableSubscriptionManagerBase : PausableSubscriptionManager
     {
         public virtual PauseSubscriptionResponse1 PauseSubscription(PauseSubscriptionRequest request)

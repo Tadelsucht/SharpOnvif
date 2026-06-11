@@ -4,7 +4,8 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class AuthorizationServerBase : AuthorizationServer
     {
         [return: MessageParameter(Name = "Token")]

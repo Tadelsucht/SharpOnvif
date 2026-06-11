@@ -3,7 +3,8 @@ using SharpOnvifServer.Security;
 
 namespace SharpOnvifServer.AccessControl
 {
-    [OnvifProviderFormatContractMessageAttribute][DisableMustUnderstandValidation]
+    [OnvifMessageFormatter]
+    [DisableMustUnderstandValidation]
     public class PACSPortBase : PACSPort
     {
         [return: MessageParameter(Name = "Token")]

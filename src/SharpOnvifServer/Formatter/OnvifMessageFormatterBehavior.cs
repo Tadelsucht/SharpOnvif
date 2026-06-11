@@ -27,7 +27,7 @@ using System;
 namespace SharpOnvifServer
 {
     [AttributeUsage(AttributeTargets.Method)]
-    public class OnvifProviderFormatMessageAttribute : Attribute, IOperationBehavior
+    public class OnvifMessageFormatterBehavior : Attribute, IOperationBehavior
     {
         public void AddBindingParameters(OperationDescription operationDescription, BindingParameterCollection bindingParameters) { }
 

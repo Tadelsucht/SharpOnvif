@@ -22,6 +22,7 @@
 using SharpOnvifClient.Behaviors;
 using SharpOnvifClient.DeviceMgmt;
 using SharpOnvifClient.Events;
+using SharpOnvifClient.Formatter;
 using SharpOnvifClient.Media;
 using SharpOnvifClient.PTZ;
 using SharpOnvifClient.Security;
@@ -41,7 +42,6 @@ namespace SharpOnvifClient
     public class SimpleOnvifClient : IDisposable
     {
         private bool _disposedValue;
-
         protected readonly string _onvifUri;
         public string OnvifUri {  get { return _onvifUri; } }
 
@@ -53,6 +53,7 @@ namespace SharpOnvifClient
         protected readonly DigestAuthenticationSchemeOptions _authentication;
         protected readonly IEndpointBehavior _legacyAuth;
         protected readonly IEndpointBehavior _disableExpect100ContinueBehavior;
+        private readonly IEndpointBehavior _onvifMessageFormatter;
 
         /// <summary>
         /// Creates an instance of <see cref="SimpleOnvifClient"/>.
@@ -109,6 +110,8 @@ namespace SharpOnvifClient
                 _disableExpect100ContinueBehavior = new DisableExpect100ContinueBehavior();
             }
 
+            _onvifMessageFormatter = new OnvifMessageInspectorBehavior();
+
             _onvifUri = onvifUri;
         }
 
@@ -136,7 +139,12 @@ namespace SharpOnvifClient
                 else
                 {
                     var client = creator(uri);
+                    var channel = client as ClientBase<TChannel>;
+                    if (!channel.Endpoint.EndpointBehaviors.Contains(_onvifMessageFormatter))
+                        channel.Endpoint.EndpointBehaviors.Add(_onvifMessageFormatter);
+
                     DisableExpect100ContinueBehaviorExtensions.SetDisableExpect100Continue(client, _disableExpect100ContinueBehavior);
+
                     client = OnvifAuthenticationExtensions.SetOnvifAuthentication(client, _credentials, _authentication, _legacyAuth);
                     _clients.Add(key, client);
                     return client;
