@@ -63,6 +63,11 @@ namespace SharpOnvifClient.Formatter
             writer.WriteStartElement("Body", "http://www.w3.org/2003/05/soap-envelope");
         }
 
+        protected override void OnWriteStartHeaders(XmlDictionaryWriter writer)
+        {
+            writer.WriteStartElement("Header", "http://www.w3.org/2003/05/soap-envelope");
+        }
+
         protected override void OnWriteBodyContents(XmlDictionaryWriter writer)
         {
             this.message.WriteBodyContents(writer);
@@ -70,7 +75,7 @@ namespace SharpOnvifClient.Formatter
 
         protected override void OnWriteStartEnvelope(XmlDictionaryWriter writer)
         {
-            writer.WriteStartElement("env", "Envelope", "http://www.w3.org/2003/05/soap-envelope");
+            writer.WriteStartElement("SOAP-ENV", "Envelope", "http://www.w3.org/2003/05/soap-envelope");
             writer.WriteAttributeString("xmlns", "tt", null, "http://www.onvif.org/ver10/schema");
         }
     }
