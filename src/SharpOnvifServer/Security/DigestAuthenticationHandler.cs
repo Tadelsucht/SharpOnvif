@@ -202,7 +202,7 @@ namespace SharpOnvifServer.Security
         private async Task<byte[]> ReadRequestBodyAsync(byte[] body)
         {
             ReadResult requestBodyInBytes = await Request.BodyReader.ReadAsync().ConfigureAwait(false);
-            string content = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.FirstSpan);
+            string content = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.ToArray());
             Request.BodyReader.AdvanceTo(requestBodyInBytes.Buffer.Start, requestBodyInBytes.Buffer.End);
             body = Encoding.UTF8.GetBytes(content);
             return body;
