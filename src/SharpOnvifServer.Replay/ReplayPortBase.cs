@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Replay
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class ReplayPortBase : ReplayPort
     {

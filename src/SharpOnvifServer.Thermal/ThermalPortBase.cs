@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Thermal
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class ThermalPortBase : ThermalPort
     {

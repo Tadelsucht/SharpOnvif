@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.DeviceMgmt
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class DeviceBase : Device
     {

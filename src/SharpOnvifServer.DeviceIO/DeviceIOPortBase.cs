@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.DeviceIO
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class DeviceIOPortBase : DeviceIOPort
     {

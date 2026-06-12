@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Search
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class SearchPortBase : SearchPort
     {

@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Credential
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class CredentialPortBase : CredentialPort
     {

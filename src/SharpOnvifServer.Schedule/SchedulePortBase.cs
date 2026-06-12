@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Schedule
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class SchedulePortBase : SchedulePort
     {

@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Recording
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class RecordingPortBase : RecordingPort
     {

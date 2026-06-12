@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Analytics
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class RuleEnginePortBase : RuleEnginePort
     {

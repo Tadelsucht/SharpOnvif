@@ -112,10 +112,17 @@ public static class Program
                     // basic events vs pull point subscription
                     bool useBasicEvents = false; // = false;
 
-                    if (useBasicEvents)
-                        await BasicEventSubscription(client);
-                    else
-                        await PullPointEventSubscription(client);
+                    try
+                    {
+                        if (useBasicEvents)
+                            await BasicEventSubscription(client);
+                        else
+                            await PullPointEventSubscription(client);
+                    }
+                    catch (Exception ex) 
+                    { 
+                        Console.WriteLine(ex.Message); 
+                    }
                 }
             }
         }

@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AuthenticationBehavior
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class AuthenticationBehaviorPortBase : AuthenticationBehaviorPort
     {

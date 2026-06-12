@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Imaging
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class ImagingPortBase : ImagingPort
     {

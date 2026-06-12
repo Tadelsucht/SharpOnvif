@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AccessRules
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class AccessRulesPortBase : AccessRulesPort
     {

@@ -3,6 +3,7 @@ using SharpOnvifServer.Security;
 
 namespace SharpOnvifServer.AccessControl
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class PACSPortBase : PACSPort
     {

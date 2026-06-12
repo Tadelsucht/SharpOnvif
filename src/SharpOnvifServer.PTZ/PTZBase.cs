@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.PTZ
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class PTZBase : PTZ
     {

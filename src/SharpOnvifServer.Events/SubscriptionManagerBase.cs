@@ -3,6 +3,7 @@ using System;
 
 namespace SharpOnvifServer.Events
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class SubscriptionManagerBase : SubscriptionManager
     {

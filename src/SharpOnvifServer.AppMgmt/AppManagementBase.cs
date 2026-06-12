@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AppMgmt
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class AppManagementBase : AppManagement
     {

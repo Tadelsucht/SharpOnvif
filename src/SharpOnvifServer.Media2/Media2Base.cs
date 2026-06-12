@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Media2
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class Media2Base : Media2
     {

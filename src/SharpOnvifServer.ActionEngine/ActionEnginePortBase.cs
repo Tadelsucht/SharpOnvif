@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.ActionEngine
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class ActionEnginePortBase : ActionEnginePort
     {

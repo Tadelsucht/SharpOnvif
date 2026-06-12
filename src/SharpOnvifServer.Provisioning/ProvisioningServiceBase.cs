@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Provisioning
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class ProvisioningServiceBase : ProvisioningService
     {

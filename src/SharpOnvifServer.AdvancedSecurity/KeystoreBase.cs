@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.AdvancedSecurity
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class KeystoreBase : Keystore
     {

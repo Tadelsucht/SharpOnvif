@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Display
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class DisplayPortBase : DisplayPort
     {

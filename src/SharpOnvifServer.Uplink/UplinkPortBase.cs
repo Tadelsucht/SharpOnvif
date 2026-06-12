@@ -4,6 +4,7 @@ using System;
 
 namespace SharpOnvifServer.Uplink
 {
+    [OnvifMessageFormatter]
     [DisableMustUnderstandValidation]
     public class UplinkPortBase : UplinkPort
     {
