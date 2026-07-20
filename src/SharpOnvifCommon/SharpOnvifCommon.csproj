@@ -12,7 +12,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.XmlSerializer.Generator" Version="$(Microsoft_XmlSerializer_Generator)" />
+		<PackageReference Include="Microsoft.XmlSerializer.Generator" Version="10.0.10" />
 	</ItemGroup>
 
 	<ItemGroup Condition=" $(TargetFramework.StartsWith('net4')) ">
@@ -20,6 +20,6 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="System.Runtime.Caching" Version="10.0.9" />
+		<PackageReference Include="System.Runtime.Caching" Version="10.0.10" />
 	</ItemGroup>
 </Project>
