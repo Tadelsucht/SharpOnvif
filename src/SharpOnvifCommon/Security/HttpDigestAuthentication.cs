@@ -1,4 +1,4 @@
-﻿// SharpOnvif
+// SharpOnvif
 // Copyright (C) 2026 Lukas Volf
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,12 +20,11 @@
 // SOFTWARE.
 
 using System;
-using System.Diagnostics;
 using System.Linq;
-using System.Runtime.Caching;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace SharpOnvifCommon.Security
 {
@@ -46,14 +45,63 @@ namespace SharpOnvifCommon.Security
         public const int ERROR_NONCE_INVALID = -6;
         public const int ERROR_NONCE_REUSE = -7;
 
-        public static byte[] NoncePrivateKey = GenerateRandom(32);
+        // The key that makes a server nonce unforgeable. It never leaves this class: handing it
+        // out, or letting anything in the process overwrite it, is enough to mint nonces the
+        // server will accept as its own.
+        private static byte[] _noncePrivateKey = GenerateRandom(32);
 
-        private static MemoryCache _nonceCache = new MemoryCache("nonce");
-        private static object _nonceCacheSyncRoot = new object();
+        private static INonceReplayStore _nonceReplayStore = new MemoryNonceReplayStore();
 
+        /// <summary>
+        /// Where spent nonces are remembered, process-wide. Defaults to
+        /// <see cref="MemoryNonceReplayStore"/>, which holds them in this process only - see the
+        /// remarks on <see cref="INonceReplayStore"/> for when that is not enough.
+        /// </summary>
+        public static INonceReplayStore NonceReplayStore
+        {
+            get { return _nonceReplayStore; }
+            set
+            {
+                if (value == null)
+                    throw new ArgumentNullException(nameof(value));
+
+                _nonceReplayStore = value;
+            }
+        }
+
+        /// <summary>
+        /// Replaces the nonce private key with a fresh random one, invalidating every nonce issued
+        /// so far. Clients holding one are challenged again.
+        /// </summary>
         public static void RegenerateNoncePrivateKey(int length = 32)
         {
-            NoncePrivateKey = GenerateRandom(length);
+            if (length <= 0)
+                throw new ArgumentOutOfRangeException(nameof(length));
+
+            _noncePrivateKey = GenerateRandom(length);
+        }
+
+        /// <summary>
+        /// Sets the nonce private key explicitly.
+        /// </summary>
+        /// <remarks>
+        /// Only a deployment running several instances behind one address needs this: a nonce is
+        /// validated by recomputing it, so an instance can only validate nonces minted with the key
+        /// it holds. Give every instance the same key - from a secret store, not from the
+        /// configuration file - and pair it with a shared <see cref="INonceReplayStore"/>, or
+        /// replay protection is still per instance.
+        /// </remarks>
+        public static void SetNoncePrivateKey(byte[] privateKey)
+        {
+            if (privateKey == null)
+                throw new ArgumentNullException(nameof(privateKey));
+            if (privateKey.Length == 0)
+                throw new ArgumentException("The nonce private key must not be empty.", nameof(privateKey));
+
+            // Copy it: the caller is free to clear its own buffer afterwards, and should.
+            byte[] copy = new byte[privateKey.Length];
+            Buffer.BlockCopy(privateKey, 0, copy, 0, privateKey.Length);
+            _noncePrivateKey = copy;
         }
 
         public static byte[] CreateNonceSessionSalt(int length = 12)
@@ -90,7 +138,7 @@ namespace SharpOnvifCommon.Security
                     BytesToString(nonceType,
                         timestampBytes
                         .Concat(salt ?? new byte[0])
-                        .Concat(Hash(nonceAlgorithm, hash, EncodingGetBytes($"{timestamp}:{ToHex(salt)}{ToHex(etag)}:{ToHex(NoncePrivateKey)}")))
+                        .Concat(Hash(nonceAlgorithm, hash, EncodingGetBytes($"{timestamp}:{ToHex(salt)}{ToHex(etag)}:{ToHex(_noncePrivateKey)}")))
                         .ToArray()
                     );
             }
@@ -102,10 +150,15 @@ namespace SharpOnvifCommon.Security
         }
 
         /// <remarks>
-        /// When nonce replay protection is used, this method shall be called only once. 
-        /// Calling it for the second time will trigger replay protection and fail the validation.
+        /// When nonce replay protection is used, this method shall be called only once for a given
+        /// request. Calling it a second time will trigger replay protection and fail the validation.
         /// </remarks>
-        public static int ValidateServerNonce(
+        /// <param name="replayStore">
+        /// Where spent nonces are remembered. <see cref="NonceReplayStore"/> is used when this is
+        /// null. Replay protection only holds across the instances that share one store - see the
+        /// remarks on <see cref="INonceReplayStore"/>.
+        /// </param>
+        public static async Task<int> ValidateServerNonceAsync(
             string nonceAlgorithm, 
             BinarySerializationType nonceType,
             string nonce, 
@@ -114,7 +167,10 @@ namespace SharpOnvifCommon.Security
             byte[] etag = null,
             int saltLength = 0,
             double lifetimeMilliseconds = 30000, // 30 seconds is the default lifetime of the nonce
-            bool useNonceReplayProtection = true) // nonce replay protection is stateful
+            bool useNonceReplayProtection = true, // nonce replay protection is stateful
+            INonceReplayStore replayStore = null,
+            CancellationToken cancellationToken = default(CancellationToken),
+            ILog logger = null)
         {
             if (string.IsNullOrEmpty(nonce))
             {
@@ -154,8 +210,7 @@ namespace SharpOnvifCommon.Security
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("Nonce is not valid base64 string");
-                    Debug.WriteLine(ex.Message);
+                    logger.Debug("Nonce is not valid base64 string", ex);
                     return ERROR_NONCE_FORMAT;
                 }
             }
@@ -167,8 +222,7 @@ namespace SharpOnvifCommon.Security
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("Nonce is not valid hexadecimal string");
-                    Debug.WriteLine(ex.Message);
+                    logger.Debug("Nonce is not valid hexadecimal string", ex);
                     return ERROR_NONCE_FORMAT;
                 }
             }
@@ -195,13 +249,13 @@ namespace SharpOnvifCommon.Security
             DateTimeOffset nonceDateTime = DateTimeOffset.FromUnixTimeMilliseconds(timestampNonce);
             if (currentTimestamp.CompareTo(nonceDateTime) < 0)
             {
-                Debug.WriteLine("Nonce is from the future");
+                logger.Debug("Nonce is from the future");
                 return ERROR_NONCE_FUTURE;
             }
 
             if (currentTimestamp.Subtract(nonceDateTime).TotalMilliseconds >= lifetimeMilliseconds)
             {
-                Debug.WriteLine("Nonce is expired");
+                logger.Debug("Nonce is expired");
                 return ERROR_NONCE_EXPIRED;
             }
 
@@ -210,40 +264,21 @@ namespace SharpOnvifCommon.Security
             string generatedNonce = GenerateServerNonce(nonceAlgorithm, nonceType, nonceDateTime, etag, salt);
             if(string.Compare(generatedNonce, nonce) != 0)
             {
-                Debug.WriteLine("Nonce is invalid");
+                logger.Debug("Nonce is invalid");
                 return ERROR_NONCE_INVALID;
             }
 
             if (useNonceReplayProtection)
             {
-                // Check for nonce re-use and add nonce to the cache for the entire duration of the nonce validity.
-                // This operation is done last after all other checks were successful.
-                lock (_nonceCacheSyncRoot)
+                // Spend the nonce. This is done last, after every other check has passed, so that
+                // a nonce is not consumed by a request that was going to be refused anyway.
+                INonceReplayStore store = replayStore ?? _nonceReplayStore;
+                DateTimeOffset expiresAt = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds));
+
+                bool fresh = await store.TryUseNonceAsync(nonce, nc, expiresAt, cancellationToken).ConfigureAwait(false);
+                if (!fresh)
                 {
-                    var cachedNonceCount = _nonceCache.Get(nonce, null);
-                    if (cachedNonceCount == null)
-                    {
-                        CacheItemPolicy cip = new CacheItemPolicy()
-                        {
-                            AbsoluteExpiration = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds))
-                        };
-                        _nonceCache.Set(nonce, 1, cip);
-                    }
-                    else
-                    {
-                        if (nc <= ((int)cachedNonceCount))
-                        {
-                            return ERROR_NONCE_REUSE;
-                        }
-                        else
-                        {
-                            CacheItemPolicy cip = new CacheItemPolicy()
-                            {
-                                AbsoluteExpiration = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds))
-                            };
-                            _nonceCache.Set(nonce, nc, cip);
-                        }
-                    }
+                    return ERROR_NONCE_REUSE;
                 }
             }
 
@@ -371,8 +406,8 @@ namespace SharpOnvifCommon.Security
         {
             string serverNonce = GenerateServerNonce(nonceAlgorithm, binarySerialization, currentTimestamp, etag, salt);
             string responseAlgorithm = (string.IsNullOrEmpty(algorithm) || algorithm == "MD5") ? "" : $", algorithm={algorithm}";
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
-            return $"Digest realm=\"{realm}\"{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}, stale={stale.ToString().ToUpperInvariant()}";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
+            return $"Digest realm={Quote(realm)}{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}, stale={stale.ToString().ToUpperInvariant()}";
         }
 
         public static string CreateWwwAuthenticateRFC2617(
@@ -389,8 +424,8 @@ namespace SharpOnvifCommon.Security
         {
             string serverNonce = GenerateServerNonce(nonceAlgorithm, nonceSerialization, currentTimestamp, etag, salt);
             string responseAlgorithm = (string.IsNullOrEmpty(algorithm) || algorithm == "MD5") ? "" : $", algorithm={algorithm}";
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
-            return $"Digest realm=\"{realm}\", qop=\"{qop}\"{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}, stale={stale.ToString().ToUpperInvariant()}";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
+            return $"Digest realm={Quote(realm)}, qop=\"{qop}\"{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}, stale={stale.ToString().ToUpperInvariant()}";
         }
 
         public static string CreateWwwAuthenticateRFC7616(
@@ -411,8 +446,8 @@ namespace SharpOnvifCommon.Security
             string responseAlgorithm = (string.IsNullOrEmpty(algorithm) || algorithm == "MD5") ? "" : $", algorithm={algorithm}";
             string responseCharset = string.IsNullOrEmpty(charset) ? "" : $", charset={charset}"; // UTF-8
             string responseUserhash = userhash ? $", userhash={userhash.ToString().ToUpperInvariant()}" : ""; // see CreateUserNameHashRFC7616
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
-            return $"Digest realm=\"{realm}\", qop=\"{qop}\"{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}{responseCharset}{responseUserhash}, stale={stale.ToString().ToUpperInvariant()}";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
+            return $"Digest realm={Quote(realm)}, qop=\"{qop}\"{responseAlgorithm}, nonce=\"{serverNonce}\"{responseOpaque}{responseCharset}{responseUserhash}, stale={stale.ToString().ToUpperInvariant()}";
         }
 
         public static string CreateAuthorizationRFC2069(
@@ -424,9 +459,9 @@ namespace SharpOnvifCommon.Security
             string opaque, 
             string algorithm)
         {
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
             string responseAlgorithm = string.IsNullOrEmpty(algorithm) || algorithm == "MD5" ? "" : $", algorithm={algorithm}";
-            return $"Digest username=\"{userName}\", realm=\"{realm}\", uri=\"{uri}\"{responseAlgorithm}, nonce=\"{nonce}\", response=\"{response}\"{responseOpaque}";
+            return $"Digest username={Quote(userName)}, realm={Quote(realm)}, uri=\"{uri}\"{responseAlgorithm}, nonce={Quote(nonce)}, response=\"{response}\"{responseOpaque}";
         }
 
         public static string CreateAuthorizationRFC2617(
@@ -441,9 +476,9 @@ namespace SharpOnvifCommon.Security
             int nc, 
             string cnonce)
         {
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
             string responseAlgorithm = string.IsNullOrEmpty(algorithm) || algorithm == "MD5" ? "" : $", algorithm={algorithm}";
-            return $"Digest username=\"{userName}\", realm=\"{realm}\", uri=\"{uri}\"{responseAlgorithm}, nonce=\"{nonce}\", qop={qop}, nc={ConvertIntToNC(nc)}, cnonce=\"{cnonce}\", response=\"{response}\"{responseOpaque}";
+            return $"Digest username={Quote(userName)}, realm={Quote(realm)}, uri=\"{uri}\"{responseAlgorithm}, nonce={Quote(nonce)}, qop={qop}, nc={ConvertIntToNC(nc)}, cnonce=\"{cnonce}\", response=\"{response}\"{responseOpaque}";
         }
 
         public static string CreateAuthorizationRFC7616(
@@ -459,7 +494,7 @@ namespace SharpOnvifCommon.Security
             string cnonce,
             bool userhash)
         {
-            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque=\"{opaque}\"";
+            string responseOpaque = string.IsNullOrEmpty(opaque) ? "" : $", opaque={Quote(opaque)}";
             string responseAlgorithm = string.IsNullOrEmpty(algorithm) || algorithm == "MD5" ? "" : $", algorithm={algorithm}";
             string responseUserhash = userhash ? $", userhash={userhash.ToString().ToLowerInvariant()}" : "";
             string responseUserName;
@@ -470,9 +505,9 @@ namespace SharpOnvifCommon.Security
             }
             else
             {
-                responseUserName = $"username=\"{userName}\"";
+                responseUserName = $"username={Quote(userName)}";
             }
-            return $"Digest {responseUserName}, realm=\"{realm}\", uri=\"{uri}\"{responseAlgorithm}, nonce=\"{nonce}\", qop={qop}, nc={ConvertIntToNC(nc)}, cnonce=\"{cnonce}\", response=\"{response}\"{responseOpaque}{responseUserhash}";
+            return $"Digest {responseUserName}, realm={Quote(realm)}, uri=\"{uri}\"{responseAlgorithm}, nonce={Quote(nonce)}, qop={qop}, nc={ConvertIntToNC(nc)}, cnonce=\"{cnonce}\", response=\"{response}\"{responseOpaque}{responseUserhash}";
         }
 
         public static string CreateAuthenticationInfoRFC2617(string algorithm, string userName, string realm, string password, bool isPasswordAlreadyHashed, string nonce, string uri, int nc, string cnonce, string qop, byte[] entityBody = null, string nextNonce = null, string noncePrime = null, string cnoncePrime = null)
@@ -517,12 +552,11 @@ namespace SharpOnvifCommon.Security
                 }
                 else if (string.Compare(qop, "auth-int", true) == 0)
                 {
-                    if (entityBody == null)
-                    {
-                        throw new ArgumentNullException(nameof(entityBody));
-                    }
-
-                    string entityBodyHash = ToHex(Hash(algorithm, hash, entityBody));
+                    // A request or a response without a body has an empty entity body, not a
+                    // missing one: RFC 7616 hashes it all the same. A GET, or a 200 with no
+                    // content, is answered under auth-int like anything else - and the peer, which
+                    // sees an empty body rather than no body, has to arrive at the same digest.
+                    string entityBodyHash = ToHex(Hash(algorithm, hash, entityBody ?? new byte[0]));
                     HA2 = ToHex(Hash(algorithm, hash, EncodingGetBytes($"{method}:{uri}:{entityBodyHash}")));
                 }
                 else
@@ -575,28 +609,121 @@ namespace SharpOnvifCommon.Security
             return ToHex(ncBytes);
         }
 
+        /// <summary>
+        /// Reads one parameter out of a Digest header.
+        /// </summary>
+        /// <remarks>
+        /// The header is walked one parameter at a time, so a name is only ever compared against
+        /// whole parameter names: "nonce" is not found inside "cnonce" or "nextnonce", and a
+        /// quoted value is skipped as a unit, so realm="cam, nonce=x" cannot supply a nonce.
+        /// Field order is not constrained, so neither of those may depend on it.
+        /// <para>
+        /// Every parameter is read whether it arrives as a token or as a quoted-string, because
+        /// the HTTP authentication grammar (RFC 9110, section 11.2) allows either for any
+        /// parameter. RFC 7616's rules on which parameters to quote bind senders, and devices
+        /// get them wrong both ways: Hikvision sends algorithm="MD5", and Onvif Device Manager
+        /// quotes qop and nc. A quoted-string has its backslash escapes removed.
+        /// </para>
+        /// </remarks>
+        /// <param name="header">The header value, with or without the leading scheme.</param>
+        /// <param name="key">
+        /// The parameter name, compared without regard to case. Backslashes are ignored, so the
+        /// "username\\*" earlier versions needed (when the name was a regular expression) still
+        /// reads username*.
+        /// </param>
+        /// <param name="hasQuotes">
+        /// Whether the specification has the parameter quoted. It no longer changes how the
+        /// value is read, and is kept so existing callers still compile.
+        /// </param>
+        /// <returns>The value of the first parameter with that name, or null if there is none.</returns>
         public static string GetValueFromHeader(string header, string key, bool hasQuotes)
         {
-            Regex regHeader;
-            if (hasQuotes)
-            {
-                regHeader = new Regex($@"{key}=""([^""]*)""", RegexOptions.IgnoreCase);
-            }
-            else
-            {
-                regHeader = new Regex($@"{key}=([^\s,]*)", RegexOptions.IgnoreCase);
-            }
+            if (string.IsNullOrEmpty(header) || string.IsNullOrEmpty(key)) return null;
 
-            Match matchHeader = regHeader.Match(header);
+            // A parameter name is a token, which cannot contain a backslash.
+            key = key.Replace("\\", "");
 
-            if (matchHeader.Success)
+            int position = 0;
+            while (position < header.Length)
             {
-                return matchHeader.Groups[1].Value;
+                // Separators between parameters.
+                while (position < header.Length && (header[position] == ',' || char.IsWhiteSpace(header[position]))) position++;
+
+                int nameStart = position;
+                while (position < header.Length && header[position] != '=' && header[position] != ',' && !char.IsWhiteSpace(header[position])) position++;
+
+                // Compared in place, and only the value asked for is copied, so walking past the
+                // other parameters allocates nothing.
+                bool isKey = position - nameStart == key.Length &&
+                    string.Compare(header, nameStart, key, 0, key.Length, StringComparison.OrdinalIgnoreCase) == 0;
+
+                while (position < header.Length && char.IsWhiteSpace(header[position])) position++;
+
+                // A word with no '=' after it is the scheme ("Digest"); it has no value to skip.
+                if (position >= header.Length || header[position] != '=') continue;
+
+                position++;
+                while (position < header.Length && char.IsWhiteSpace(header[position])) position++;
+
+                string value = position < header.Length && header[position] == '"'
+                    ? ReadQuotedString(header, ref position, isKey)
+                    : ReadToken(header, ref position, isKey);
+
+                if (isKey) return value;
             }
 
             return null;
         }
 
+        /// <summary>
+        /// Reads a quoted-string starting at its opening quote, removing backslash escapes. An
+        /// unterminated one runs to the end of the header. Returns null when not capturing.
+        /// </summary>
+        private static string ReadQuotedString(string header, ref int position, bool capture)
+        {
+            StringBuilder value = capture ? new StringBuilder() : null;
+
+            position++; // the opening quote
+            while (position < header.Length)
+            {
+                char c = header[position++];
+                if (c == '"') break;
+                if (c == '\\' && position < header.Length) c = header[position++];
+                value?.Append(c);
+            }
+
+            return value?.ToString();
+        }
+
+        /// <summary>
+        /// Reads an unquoted value, which ends at whitespace or the next separator. Returns null
+        /// when not capturing.
+        /// </summary>
+        private static string ReadToken(string header, ref int position, bool capture)
+        {
+            int start = position;
+            while (position < header.Length && header[position] != ',' && !char.IsWhiteSpace(header[position])) position++;
+            return capture ? header.Substring(start, position - start) : null;
+        }
+
+        /// <summary>
+        /// Writes a value as a quoted-string, escaping the quotes and backslashes in it so that
+        /// <see cref="GetValueFromHeader"/> on the other side reads back the same value.
+        /// </summary>
+        private static string Quote(string value)
+        {
+            return "\"" + (value ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+
+        /// <summary>
+        /// The hash a digest algorithm name selects. An absent name means MD5, which is what RFC
+        /// 7616 says a missing algorithm parameter stands for.
+        /// </summary>
+        /// <exception cref="NotSupportedException">
+        /// The name is not one of the algorithms this library implements. Falling back to MD5
+        /// would let anything unrecognised - including a name a peer chose - be computed with the
+        /// weakest algorithm available without a word.
+        /// </exception>
         private static HashAlgorithm GetHashAlgorithm(string algorithm)
         {
             switch (algorithm?.ToUpperInvariant())
@@ -609,11 +736,52 @@ namespace SharpOnvifCommon.Security
                 case "SHA-256-SESS":
                     return SHA256.Create();
 
+                case null:
+                case "":
                 case "MD5":
                 case "MD5-SESS":
-                default:
                     return MD5.Create();
+
+                default:
+                    throw new NotSupportedException($"Unsupported digest algorithm '{algorithm}'.");
             }
+        }
+
+        /// <summary>True when the name is one of the algorithms this library implements.</summary>
+        public static bool IsSupportedAlgorithm(string algorithm)
+        {
+            switch (algorithm?.ToUpperInvariant())
+            {
+                case "SHA-512-256":
+                case "SHA-512-256-SESS":
+                case "SHA-256":
+                case "SHA-256-SESS":
+                case null:
+                case "":
+                case "MD5":
+                case "MD5-SESS":
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Compares two digests without letting how long the comparison takes reveal how much of
+        /// one was right, which would otherwise let a response be recovered a character at a time.
+        /// </summary>
+        public static bool FixedTimeEquals(string left, string right)
+        {
+            if (left == null || right == null) return ReferenceEquals(left, right);
+
+            // The length of a digest is decided by the algorithm, so it is not a secret.
+            if (left.Length != right.Length) return false;
+
+            int difference = 0;
+            for (int i = 0; i < left.Length; i++) difference |= left[i] ^ right[i];
+
+            return difference == 0;
         }
 
         private static int GetHashLength(string algorithm)
@@ -628,10 +796,14 @@ namespace SharpOnvifCommon.Security
                 case "SHA-256-SESS":
                     return 32;
 
+                case null:
+                case "":
                 case "MD5":
                 case "MD5-SESS":
-                default:
                     return 16;
+
+                default:
+                    throw new NotSupportedException($"Unsupported digest algorithm '{algorithm}'.");
             }
         }
 
@@ -701,14 +873,19 @@ namespace SharpOnvifCommon.Security
         #region Nonce prime
 
         private const int OPAQUE_LENGTH = 32;
-        private static MemoryCache _primeCache = new MemoryCache("prime");
-        private static object _primeCacheSyncRoot = new object();
+        private static readonly ExpiringCache<string, (string nonce, string cnonce)?> _primeCache =
+            new ExpiringCache<string, (string nonce, string cnonce)?>(StringComparer.Ordinal);
+
+        // Reading a prime and writing one back is a single decision, so it is taken under one lock
+        // rather than left to the two calls the cache sees.
+        private static readonly object _primeCacheSyncRoot = new object();
 
         public static (string nonce, string cnonce)? GetNoncePrime(string sessionID)
         {
             lock (_primeCacheSyncRoot)
             {
-                return _primeCache.Get(sessionID, null) as (string nonce, string cnonce)?;
+                (string nonce, string cnonce)? prime;
+                return _primeCache.TryGet(sessionID, out prime) ? prime : null;
             }
         }
 
@@ -716,35 +893,29 @@ namespace SharpOnvifCommon.Security
         {
             lock (_primeCacheSyncRoot)
             {
-                _primeCache.Remove(sessionID, null);
+                _primeCache.Remove(sessionID);
             }
         }
 
         public static bool TrySetNoncePrime(string sessionID, (string nonce, string cnonce)? primeCandidate, double lifetimeMilliseconds = 5 * 60 * 1000)
         {
+            var expiresAt = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds));
+
             lock (_primeCacheSyncRoot)
             {
-                var currentPrime = _primeCache.Get(sessionID, null);
-                if (currentPrime == null)
+                // A null value was never storable before and is not treated as a prime now: a
+                // session with nothing recorded against it is a session waiting for its first.
+                (string nonce, string cnonce)? currentPrime;
+                if (!_primeCache.TryGet(sessionID, out currentPrime) || currentPrime == null)
                 {
                     // we have a new prime
-                    CacheItemPolicy cip = new CacheItemPolicy()
-                    {
-                        AbsoluteExpiration = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds))
-                    };
-                    _primeCache.Set(sessionID, primeCandidate, cip);
+                    _primeCache.Set(sessionID, primeCandidate, expiresAt);
                     return true;
                 }
-                else
-                {
-                    // update the expiration
-                    CacheItemPolicy cip = new CacheItemPolicy()
-                    {
-                        AbsoluteExpiration = new DateTimeOffset(DateTime.UtcNow.AddMilliseconds(lifetimeMilliseconds))
-                    };
-                    _primeCache.Set(sessionID, currentPrime, cip);
-                    return false;
-                }
+
+                // The session keeps the prime it started with; only its expiration moves out.
+                _primeCache.Set(sessionID, currentPrime, expiresAt);
+                return false;
             }
         }
 
@@ -757,7 +928,7 @@ namespace SharpOnvifCommon.Security
             return BytesToString(opaqueType, opaque);
         }
 
-        public static int ValidateOpaque(BinarySerializationType opaqueType, string opaque)
+        public static int ValidateOpaque(BinarySerializationType opaqueType, string opaque, ILog logger = null)
         {
             if (string.IsNullOrEmpty(opaque))
                 return ERROR_NONCE_EMPTY;
@@ -795,8 +966,7 @@ namespace SharpOnvifCommon.Security
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("Opaque is not valid base64 string");
-                    Debug.WriteLine(ex.Message);
+                    logger.Debug("Opaque is not valid base64 string", ex);
                     return ERROR_NONCE_FORMAT;
                 }
             }
@@ -808,8 +978,7 @@ namespace SharpOnvifCommon.Security
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine("Opaque is not valid hexadecimal string");
-                    Debug.WriteLine(ex.Message);
+                    logger.Debug("Opaque is not valid hexadecimal string", ex);
                     return ERROR_NONCE_FORMAT;
                 }
             }

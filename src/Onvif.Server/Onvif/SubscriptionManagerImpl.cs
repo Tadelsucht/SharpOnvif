@@ -1,4 +1,4 @@
-﻿// SharpOnvif
+// SharpOnvif
 // Copyright (C) 2026 Lukas Volf
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -28,22 +28,39 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
-using System.Xml.Serialization;
+using SharpOnvifCommon.Onvif;
+using SharpOnvifCommon.Soap;
+using SharpOnvifCommon.Xml;
+using SharpOnvifServer;
 
 namespace OnvifService.Onvif
 {
     /// <summary>
     /// Onvif Event Subscription Manager.
     /// </summary>
-    public class SubscriptionManagerImpl : SubscriptionManager, PullPointSubscription, IEventSubscription
+    public class SubscriptionManagerImpl : EventsBase, IEventSubscription
     {
         private readonly ILogger<SubscriptionManagerImpl> _logger;
         private readonly IHttpClientFactory _httpClientFactory;
         private IEventSource _eventSource;
         private readonly string _notificationEndpoint; // endpoint where to send Basic subscription notifications
         private readonly TimeSpan _expirationDelta;
+
+        /// <summary>
+        /// How much longer than the poll it is servicing a subscription is kept alive, covering
+        /// the round trip back to the client and its next call.
+        /// </summary>
+        private static readonly TimeSpan ExpirationGrace = TimeSpan.FromSeconds(10);
+
+        /// <summary>The namespace a Notify and the messages it carries are named in.</summary>
+        private const string WsBaseNotification = "http://docs.oasis-open.org/wsn/b-2";
+
+        // The topics this subscriber asked for. A device that sends everything else as well is
+        // not conformant, and floods a client that only wanted to hear about motion.
+        private readonly TopicFilter _topics;
 
         private readonly ConcurrentQueue<NotificationMessage> _messages = new ConcurrentQueue<NotificationMessage>();
 
@@ -56,6 +73,7 @@ namespace OnvifService.Onvif
             DateTime expirationTime, 
             TimeSpan expirationDelta,
             string notificationEndpoint,
+            TopicFilter topics,
             ILogger<SubscriptionManagerImpl> logger,
             IHttpClientFactory httpClientFactory,
             IEventSource eventSource)
@@ -63,6 +81,7 @@ namespace OnvifService.Onvif
             ExpirationTime = expirationTime;
             _expirationDelta = expirationDelta;
             _notificationEndpoint = notificationEndpoint; // for Basic subscriptions only
+            _topics = topics ?? TopicFilter.MatchAll;
             _logger = logger;
             _httpClientFactory = httpClientFactory;
             _eventSource = eventSource;
@@ -71,6 +90,11 @@ namespace OnvifService.Onvif
 
         private void EventSource_OnEvent(object sender, NotificationEventArgs e)
         {
+            // The event source produces everything the device can report; this subscriber asked
+            // for some of it.
+            if (!_topics.Matches(e.Message))
+                return;
+
             if (string.IsNullOrEmpty(_notificationEndpoint))
             {
                 // PullPoint
@@ -83,17 +107,25 @@ namespace OnvifService.Onvif
             }
         }
 
-        public PullMessagesResponse PullMessages(PullMessagesRequest request)
+        public override PullMessagesResponse PullMessages(PullMessagesRequest request)
         {
             if (!string.IsNullOrEmpty(_notificationEndpoint))
                 throw new InvalidOperationException($"{nameof(SubscriptionManagerImpl)}: {nameof(PullMessages)} is not supported on Basic event subscription!");
 
             DateTime now = DateTime.UtcNow;
-            DateTime expiration = now.Add(_expirationDelta); // TODO: review if adding the initial Delta is correct
+            TimeSpan timeout = OnvifHelpers.FromTimeout(request.Timeout);
+
+            // A pull is a long poll: this call holds the request open for the timeout the client
+            // asked for. The subscription has to outlast the poll it is servicing, or the
+            // expiration sweep removes it while it is still waiting and the client is told, on the
+            // next call, about a subscription that was alive when it asked.
+            DateTime expiration = now.Add(_expirationDelta);
+            DateTime survivesThisPull = now.Add(timeout).Add(ExpirationGrace);
+            if (expiration < survivesThisPull) expiration = survivesThisPull;
+
             ExtendExpiration(expiration);
 
             // spinlock wait until timeout
-            TimeSpan timeout = OnvifHelpers.FromTimeout(request.Timeout);
             DateTime waitUntil = now.Add(timeout);
             while(_messages.Count == 0 && DateTime.UtcNow < waitUntil)
             {
@@ -113,33 +145,33 @@ namespace OnvifService.Onvif
                 TerminationTime = expiration,
                 NotificationMessage = content.Select(msg => new NotificationMessageHolderType()
                 {
-                    Any = OnvifEvents.CreateNotificationMessage(msg) 
+                    Topic = new TopicExpressionType()
+                    {
+                        Dialect = OnvifEvents.TopicDialectConcreteSet,
+                        Any = OnvifEvents.CreateTopicContent(msg)
+                    },
+                    Message = OnvifEvents.CreateMessageElement(msg)
                 }).ToArray()
             };
         }
 
-        public RenewResponse1 Renew(RenewRequest request)
+        public override RenewResponse Renew(RenewRequest request)
         {
             DateTime now = DateTime.UtcNow;
-            DateTime expiration = OnvifHelpers.FromAbsoluteOrRelativeDateTimeUTC(now, request.Renew.TerminationTime, now.AddMinutes(1));
+            DateTime expiration = OnvifHelpers.FromAbsoluteOrRelativeDateTimeUTC(now, request.TerminationTime, now.AddMinutes(1));
             ExtendExpiration(expiration);
 
-            return new RenewResponse1()
+            return new RenewResponse()
             {
-                RenewResponse = new RenewResponse()
-                {
-                    CurrentTime = DateTime.UtcNow,
-                    TerminationTime = expiration
-                }
+                CurrentTime = DateTime.UtcNow,
+                CurrentTimeSpecified = true,
+                TerminationTime = expiration
             };
         }
 
-        public UnsubscribeResponse1 Unsubscribe(UnsubscribeRequest request)
+        public override UnsubscribeResponse Unsubscribe(UnsubscribeRequest request)
         {
-            return new UnsubscribeResponse1()
-            {
-                UnsubscribeResponse = new UnsubscribeResponse()
-            };
+            return new UnsubscribeResponse();
         }
 
         private void ExtendExpiration(DateTime expiration)
@@ -154,49 +186,79 @@ namespace OnvifService.Onvif
 
         private void SendBasicEventNotification(NotificationMessage message)
         {
-            XmlSerializer serializer = new XmlSerializer(typeof(NotificationMessageHolderType));
-            using (StringWriter writer = new StringWriter())
-            {
-                var msg = new NotificationMessageHolderType()
+            var notify = new NotifyRequest(
+                new[]
                 {
-                    Any = OnvifEvents.CreateNotificationMessage(message)
-                };
-
-                serializer.Serialize(writer, msg);
-
-                string content = writer.ToString();
-
-                var httpClient = _httpClientFactory.CreateClient();
-                var httpRequestMessage = new HttpRequestMessage(HttpMethod.Post, _notificationEndpoint)
-                {
-                    Content = new StringContent(content, Encoding.UTF8, "application/soap+xml")
-                };
-
-                try
-                {
-                    var httpResponseMessage = httpClient.Send(httpRequestMessage);
-
-                    if (httpResponseMessage.IsSuccessStatusCode)
+                    new NotificationMessageHolderType()
                     {
-                        _logger.LogDebug($"{nameof(SubscriptionManagerImpl)}: Sent Basic event to {_notificationEndpoint}\r\n{content}\r\n");
+                        Topic = new TopicExpressionType()
+                        {
+                            Dialect = OnvifEvents.TopicDialectConcreteSet,
+                            Any = OnvifEvents.CreateTopicContent(message)
+                        },
+                        Message = OnvifEvents.CreateMessageElement(message)
                     }
-                }
-                catch(Exception ex)
+                },
+                null);
+
+            // A Basic subscription is delivered as a wsnt:Notify in a SOAP envelope, naming the
+            // action the way any other call does, because the subscriber's address is a
+            // NotificationConsumer and Notify is an operation on it.
+            //
+            // Reflecting over the holder type sent a bare NotificationMessageHolderType element
+            // under a soap+xml content type instead - not a SOAP message at all, and carrying no
+            // action to dispatch on. This library's own reader is lenient enough to have found
+            // the event in it anyway, so what this fixes is what a consumer that is not this
+            // library does with it.
+            string content = SoapMessageCodec.Instance.WriteEnvelope(
+                OnvifXmlNamespaces.EnvelopePrologue,
+                null,
+                writer =>
                 {
-                    _logger.LogError($"{nameof(SubscriptionManagerImpl)}: Failed to send Basic event to {_notificationEndpoint} because of an exception: {ex.Message}.");
+                    writer.WriteStartElement(WsBaseNotification, "Notify");
+                    writer.WriteContent(notify);
+                    writer.WriteEndElement();
+                });
+
+            var httpClient = _httpClientFactory.CreateClient();
+            var httpRequestMessage = new HttpRequestMessage(HttpMethod.Post, _notificationEndpoint)
+            {
+                Content = new StringContent(content, new UTF8Encoding(false)),
+            };
+
+            // The action travels as a Content-Type parameter, which is what the consumer
+            // dispatches on.
+            var contentType = new MediaTypeHeaderValue(SoapEnvelope.ContentType);
+            contentType.CharSet = "utf-8";
+            contentType.Parameters.Add(
+                new NameValueHeaderValue("action", "\"" + SharpOnvifServer.Events.SoapActions.Notify + "\""));
+            httpRequestMessage.Content.Headers.ContentType = contentType;
+
+            try
+            {
+                var httpResponseMessage = httpClient.Send(httpRequestMessage);
+
+                if (httpResponseMessage.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug($"{nameof(SubscriptionManagerImpl)}: Sent Basic event to {UntrustedText.Printable(_notificationEndpoint)}\r\n{content}\r\n");
                 }
+            }
+            catch(Exception ex)
+            {
+                _logger.LogError($"{nameof(SubscriptionManagerImpl)}: Failed to send Basic event to {UntrustedText.Printable(_notificationEndpoint)} because of an exception: {ex.Message}.");
             }
         }
 
-        public SeekResponse Seek(SeekRequest request)
+        public override SeekResponse Seek(SeekRequest request)
         {
             _logger.LogError($"{nameof(Seek)} is currently not supported");
             return new SeekResponse();
         }
 
-        public void SetSynchronizationPoint()
+        public override SetSynchronizationPointResponse SetSynchronizationPoint()
         {
             _logger.LogError($"{nameof(SetSynchronizationPoint)} is currently not supported");
+            return new SetSynchronizationPointResponse();
         }
     }
 }

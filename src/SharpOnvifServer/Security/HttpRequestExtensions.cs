@@ -27,12 +27,29 @@ namespace SharpOnvifServer.Security
 {
     public static class HttpRequestExtensions
     {
+        /// <summary>
+        /// Whether the request carries an Authorization header with the Digest scheme, well-formed or not.
+        /// </summary>
+        public static bool HasDigestAuthorizationHeader(this HttpRequest request)
+        {
+            if (request.Headers.Authorization.Count == 0)
+                return false;
+
+            string auth = request.Headers.Authorization[0];
+            return auth != null &&
+                (auth.StartsWith("Digest ", StringComparison.OrdinalIgnoreCase) || string.Equals(auth.Trim(), "Digest", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Parses the Digest Authorization header. Returns null when there is none, or when it lacks
+        /// any of username, realm, nonce, uri or response.
+        /// </summary>
         public static WebDigestAuth GetSecurityHeaderFromHeaders(this HttpRequest request)
         {
             if (request.Headers.Authorization.Count > 0)
             {
                 string auth = request.Headers.Authorization[0];
-                if (auth.StartsWith("Digest ", StringComparison.OrdinalIgnoreCase))
+                if (auth != null && auth.StartsWith("Digest ", StringComparison.OrdinalIgnoreCase))
                 {
                     string realm = HttpDigestAuthentication.GetValueFromHeader(auth, "realm", true);
                     string algorithm = HttpDigestAuthentication.GetValueFromHeader(auth, "algorithm", false) ?? "";
@@ -41,7 +58,7 @@ namespace SharpOnvifServer.Security
                     // read username*
                     if (string.IsNullOrEmpty(userName))
                     {
-                        userName = HttpDigestAuthentication.GetValueFromHeader(auth, "username\\*", false); // username*
+                        userName = HttpDigestAuthentication.GetValueFromHeader(auth, "username*", false);
                         if (!string.IsNullOrEmpty(userName) && userName.StartsWith("UTF-8''"))
                         {
                             userName = Uri.UnescapeDataString(userName.Substring("UTF-8''".Length));
@@ -53,25 +70,23 @@ namespace SharpOnvifServer.Security
                     string uri = HttpDigestAuthentication.GetValueFromHeader(auth, "uri", true);
                     string opaque = HttpDigestAuthentication.GetValueFromHeader(auth, "opaque", true);
 
-                    // some implementations put quotes around qop (ODM)
+                    // Some implementations (ODM) quote qop and nc, against RFC 7616. GetValueFromHeader
+                    // reads either form.
                     string qop = HttpDigestAuthentication.GetValueFromHeader(auth, "qop", false);
-                    if (!string.IsNullOrEmpty(qop) && qop.Contains("\""))
-                    {
-                        // Note that this is against RFC 7616 that says: For historical reasons, a sender MUST NOT
-                        //  generate the quoted string syntax for the following parameters: qop and nc
-                        qop = qop.Replace("\"", "");
-                    }
-
                     string cnonce = HttpDigestAuthentication.GetValueFromHeader(auth, "cnonce", true);
                     string nc = HttpDigestAuthentication.GetValueFromHeader(auth, "nc", false);
-                    if (!string.IsNullOrEmpty(nc) && nc.Contains("\""))
-                    {
-                        // Note that this is against RFC 7616 that says: For historical reasons, a sender MUST NOT
-                        //  generate the quoted string syntax for the following parameters: qop and nc
-                        nc = nc.Replace("\"", "");
-                    }
 
                     string userHash = HttpDigestAuthentication.GetValueFromHeader(auth, "userhash", false);
+
+                    if (string.IsNullOrEmpty(userName) ||
+                        string.IsNullOrEmpty(realm) ||
+                        string.IsNullOrEmpty(nonce) ||
+                        string.IsNullOrEmpty(uri) ||
+                        string.IsNullOrEmpty(response))
+                    {
+                        // the header is malformed
+                        return null;
+                    }
 
                     return new WebDigestAuth(algorithm, userName, realm, nonce, uri, response, qop, cnonce, nc, userHash, opaque);
                 }

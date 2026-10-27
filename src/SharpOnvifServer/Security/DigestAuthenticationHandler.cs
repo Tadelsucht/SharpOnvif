@@ -1,4 +1,4 @@
-﻿// SharpOnvif
+// SharpOnvif
 // Copyright (C) 2026 Lukas Volf
 // 
 // Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,10 +24,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SharpOnvifCommon.Security;
+using SharpOnvifCommon.Soap;
+using SharpOnvifCommon.Xml;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO.Pipelines;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
@@ -35,9 +36,7 @@ using System.Security.Principal;
 using System.Text.Encodings.Web;
 using System.Text;
 using System.Threading.Tasks;
-using System.Xml.Linq;
-using System.Xml.Serialization;
-using System.Buffers;
+using System.Xml;
 
 namespace SharpOnvifServer.Security
 {
@@ -45,6 +44,24 @@ namespace SharpOnvifServer.Security
     {
         private const string CONTEXT_AUTHENTICATE_WEB_DIGEST_RESULT = "authenticateWebDigestResult_07E740A9-0079-42CF-9FDE-510FDAB3A1D9";
         private const string CONTEXT_OPAQUE = "opaque_E768DBA5-D7A8-4735-BD34-FE9F0D65DE54";
+
+        /// <summary>
+        /// Holds this request's HTTP Digest once it has been checked and held up - and nothing at
+        /// all until then.
+        /// </summary>
+        /// <remarks>
+        /// What proves the device knows the password is computed from it, so it is the checked
+        /// token that is kept rather than the header it came from. Reading that header a second
+        /// time would mean the values used to prove identity were never themselves the values
+        /// that were verified.
+        /// </remarks>
+        internal const string CONTEXT_VALIDATED_DIGEST = "validatedDigest_5C1B0B0E-4E51-4A2E-9E63-0B2D9C6C5E44";
+
+        /// <summary>
+        /// The user whose password that digest was checked against, so answering the request does
+        /// not ask the user repository a second time.
+        /// </summary>
+        internal const string CONTEXT_VALIDATED_USER = "validatedUser_9F3A6C21-6B4E-4F0B-8D6A-2E7C1B5D4A93";
 
         private const int NONCE_SALT_LENGTH = 12;
         private const string NONCE_HASH_ALGORITHM = "SHA-256";
@@ -66,7 +83,7 @@ namespace SharpOnvifServer.Security
 
         protected async override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            if(Options.Authentication == DigestAuthentication.None || AllowAnonymousAccess(Request.ContentType))
+            if(Options.Onvif.Authentication == DigestAuthentication.None || await AllowAnonymousAccessAsync().ConfigureAwait(false))
             {
                 // use Anonymous user either when auth is turned off, or for selected Onvif actions that do not require authentication
                 var identity = new GenericIdentity(ANONYMOUS_USER);
@@ -75,16 +92,40 @@ namespace SharpOnvifServer.Security
                 return AuthenticateResult.Success(ticket);
             }
 
-            if (Options.Authentication.HasFlag(DigestAuthentication.HttpDigest))
+            if (Options.Onvif.Authentication.HasFlag(DigestAuthentication.HttpDigest))
             {
+                if (Request.HasDigestAuthorizationHeader() &&
+                    !Options.Onvif.IsWithinHttpDigestMaxHeaderLength(Request.Headers.Authorization[0]))
+                {
+                    // refused before it is read; like a malformed digest, it must not be excused
+                    // by a token further down the request
+                    return AuthenticateResult.Fail("HTTP Digest header is too long.");
+                }
+
                 // according to the Onvif specification, we must first authenticate the Digest if it's present
                 WebDigestAuth webToken = Request.GetSecurityHeaderFromHeaders();
+
+                if (webToken == null && Request.HasDigestAuthorizationHeader())
+                {
+                    // a Digest header without username, realm, nonce, uri or response gets the usual
+                    // challenge - and, like any other failed digest, must not be excused by a token
+                    // further down the request
+                    return AuthenticateResult.Fail("HTTP Digest header is malformed.");
+                }
 
                 if (webToken != null)
                 {
                     if (string.Compare(webToken.Realm, Options.HttpDigestRealm) != 0)
                     {
                         return AuthenticateResult.Fail("HTTP Digest has invalid realm.");
+                    }
+
+                    if (!IsOfferedAlgorithm(webToken.Algorithm))
+                    {
+                        // The algorithm arrives in the request, so without this a client picks it
+                        // regardless of what the device offered - and an unrecognised name used to
+                        // fall through to MD5. Configuring SHA-256 only has to mean something.
+                        return AuthenticateResult.Fail($"HTTP Digest algorithm '{webToken.Algorithm}' was not offered.");
                     }
 
                     // store the opaque for the duration of this request
@@ -98,22 +139,30 @@ namespace SharpOnvifServer.Security
                         byte[] body = null;
                         if (string.Compare("auth-int", webToken.Qop, true) == 0)
                         {
-                            body = await ReadRequestBodyAsync(body).ConfigureAwait(false);
+                            body = await ReadRequestBodyAsync().ConfigureAwait(false);
                         }
 
                         int authenticateWebDigestResult = await AuthenticateWebDigestAsync(Options.HttpDigestRealm, Request.Method, webToken, body).ConfigureAwait(false);
                         if (authenticateWebDigestResult == 0)
                         {
-                            // now in case the request also contains WsUsernameToken, we must verify it
-                            SoapDigestAuth token = await GetSecurityHeaderFromSoapEnvelopeAsync(Request).ConfigureAwait(false);
+                            // A request that authenticated one way may carry credentials the other
+                            // way too, and then the two have to agree: digest as one user while
+                            // the header claims another is not something to let through.
+                            //
+                            // Only when this device takes the older scheme, though. A client that
+                            // knows both sends the token whether or not the device wants it,
+                            // having no way to find out but to be refused - so on a device that
+                            // has switched it off the token is not a credential at all, nothing
+                            // here reads it, and the identity comes from the digest that just
+                            // succeeded. Failing the request for carrying it locks out every
+                            // client that has not been told which schemes this device kept.
+                            SoapDigestAuth token =
+                                Options.Onvif.Authentication.HasFlag(DigestAuthentication.WsUsernameToken)
+                                    ? await GetSecurityHeaderFromSoapEnvelopeAsync().ConfigureAwait(false)
+                                    : null;
+
                             if (token != null)
                             {
-                                if(!Options.Authentication.HasFlag(DigestAuthentication.WsUsernameToken))
-                                {
-                                    // WsUsernameToken is explicitly disallowed, fail
-                                    return AuthenticateResult.Fail($"HTTP Digest authentication succeeded, but WsUsernameToken authentication is not allowed.");
-                                }
-
                                 try
                                 {
                                     if (await AuthenticateSoapDigestAsync(token.UserName, token.Password, token.Nonce, token.Created).ConfigureAwait(false) == 0)
@@ -141,6 +190,8 @@ namespace SharpOnvifServer.Security
                                 HttpDigestAuthentication.TrySetNoncePrime(webToken.Opaque, (webToken.Nonce, webToken.CNonce));
                             }
 
+                            Context.Items[CONTEXT_VALIDATED_DIGEST] = webToken;
+
                             var identity = new GenericIdentity(webToken.UserName);
                             var claimsPrincipal = new ClaimsPrincipal(identity);
                             var ticket = new AuthenticationTicket(claimsPrincipal, Scheme.Name);
@@ -152,6 +203,15 @@ namespace SharpOnvifServer.Security
                             Context.Items[CONTEXT_AUTHENTICATE_WEB_DIGEST_RESULT] = authenticateWebDigestResult;
                             return AuthenticateResult.Fail("HTTP Digest nonce has expired.");
                         }
+                        else
+                        {
+                            // A digest that does not hold up is a refusal, not something to fall
+                            // past. Credentials presented both ways have to be right both ways,
+                            // and the specification has the digest checked first - so a bad
+                            // digest must not be excused by a good token further down the
+                            // request.
+                            return AuthenticateResult.Fail("HTTP Digest authentication failed.");
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -160,9 +220,9 @@ namespace SharpOnvifServer.Security
                 }
             }
             
-            if(Options.Authentication.HasFlag(DigestAuthentication.WsUsernameToken))
+            if(Options.Onvif.Authentication.HasFlag(DigestAuthentication.WsUsernameToken))
             {
-                SoapDigestAuth token = await GetSecurityHeaderFromSoapEnvelopeAsync(Request).ConfigureAwait(false);
+                SoapDigestAuth token = await GetSecurityHeaderFromSoapEnvelopeAsync().ConfigureAwait(false);
                 if (token != null)
                 {
                     try
@@ -189,23 +249,86 @@ namespace SharpOnvifServer.Security
             return AuthenticateResult.Fail("No authentication found");
         }
 
-        private bool AllowAnonymousAccess(string contentType)
+        /// <summary>
+        /// True when the algorithm is one this device advertised. An absent algorithm means MD5,
+        /// which RFC 7616 defines as the default, so it is accepted only when MD5 was offered.
+        /// </summary>
+        private bool IsOfferedAlgorithm(string algorithm)
         {
-            // according to the Onvif specification, these functions are in the access class PRE_AUTH and do not require any authentication:
-            return
-                contentType != null &&
-                Options.PreAuthActions != null && 
-                (Options.PreAuthActions.FirstOrDefault(x => contentType.Contains($"action=\"{x}\"")) != null) && 
-                (contentType.Split("action=\"").Count() - 1) == 1;
+            if (!HttpDigestAuthentication.IsSupportedAlgorithm(algorithm)) return false;
+
+            var offered = Options.Onvif.HttpDigestAlgorithms;
+            if (offered == null || offered.Count == 0) return string.IsNullOrEmpty(algorithm) || algorithm == "MD5";
+
+            string requested = string.IsNullOrEmpty(algorithm) ? "MD5" : algorithm;
+            foreach (string candidate in offered)
+            {
+                string offeredName = string.IsNullOrEmpty(candidate) ? "MD5" : candidate;
+                if (string.Equals(offeredName, requested, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+
+            return false;
         }
 
-        private async Task<byte[]> ReadRequestBodyAsync(byte[] body)
+        /// <summary>
+        /// Whether this request names one of the operations the Onvif specification puts in its
+        /// PRE_AUTH class, which a device answers without credentials.
+        /// </summary>
+        /// <remarks>
+        /// The action is read by the same code that dispatches on it, and compared whole rather
+        /// than looked for inside the header. Anything else lets a request authenticate as one
+        /// operation and run as another: naming an unquoted operation first and a quoted PRE_AUTH
+        /// one second used to satisfy this check while the endpoint dispatched the first.
+        /// </remarks>
+        private async Task<bool> AllowAnonymousAccessAsync()
         {
-            ReadResult requestBodyInBytes = await Request.BodyReader.ReadAsync().ConfigureAwait(false);
-            string content = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.ToArray());
-            Request.BodyReader.AdvanceTo(requestBodyInBytes.Buffer.Start, requestBodyInBytes.Buffer.End);
-            body = Encoding.UTF8.GetBytes(content);
-            return body;
+            string action = Dispatch.OnvifRequestAction.FromContentType(Request.ContentType);
+
+            if (action == null)
+            {
+                // Onvif Device Manager sends the action as a wsa:Action header instead, and the
+                // endpoint falls back to reading it there - so this has to fall back the same way
+                // and in the same order, or an operation the specification says needs no password
+                // is asked for one.
+                byte[] body = await ReadRequestBodyAsync().ConfigureAwait(false);
+                if (body == null || body.Length == 0) return false;
+
+                action = Dispatch.OnvifRequestAction.FromEnvelope(body);
+            }
+
+            return Options.Onvif.IsPreAuth(action);
+        }
+
+        /// <summary>
+        /// The request body, without consuming it, or null when there is more of it than this
+        /// endpoint would answer.
+        /// </summary>
+        /// <remarks>
+        /// Read to the end rather than taking whatever the first read happens to return: a body
+        /// that arrives in more than one piece was being digested as its first piece, which fails
+        /// an auth-int request for no reason the sender can see.
+        /// <para>
+        /// Capped at what the endpoint will accept, because this runs before the endpoint does -
+        /// so without a cap here, a request too large to ever be dispatched would be buffered in
+        /// full before anything refused it. Nothing is consumed either way: the endpoint still
+        /// reads the same body afterwards.
+        /// </para>
+        /// </remarks>
+        private async Task<byte[]> ReadRequestBodyAsync()
+        {
+            // The bytes themselves, not a round trip through a string: an auth-int digest covers
+            // what was sent, and a body that is not valid UTF-8 does not survive being decoded and
+            // re-encoded. Read once and kept, so the pre-auth check, the WS-UsernameToken and the
+            // endpoint behind this share one copy rather than making one each.
+            try
+            {
+                return await Dispatch.OnvifRequestBody.ReadAsync(Context).ConfigureAwait(false);
+            }
+            catch (InvalidDataException)
+            {
+                // Too large to be an Onvif request; the endpoint refuses it with the right status.
+                return null;
+            }
         }
 
         public async Task<int> AuthenticateSoapDigestAsync(string userName, string digest, string nonce, string created)
@@ -242,7 +365,7 @@ namespace SharpOnvifServer.Security
 
             if (user != null)
             {
-                int nonceValidationResult = HttpDigestAuthentication.ValidateServerNonce(
+                int nonceValidationResult = await HttpDigestAuthentication.ValidateServerNonceAsync(
                     NONCE_HASH_ALGORITHM,
                     PREFERRED_SERIALIZATION,
                     webToken.Nonce,
@@ -251,7 +374,9 @@ namespace SharpOnvifServer.Security
                     null, 
                     NONCE_SALT_LENGTH,
                     Options.HttpDigestNonceLifetimeMilliseconds,
-                    true);
+                    true,
+                    Options.HttpDigestNonceReplayStore,
+                    Context.RequestAborted).ConfigureAwait(false);
                 if (nonceValidationResult == 0)
                 {
                     string digest;
@@ -297,14 +422,10 @@ namespace SharpOnvifServer.Security
                         noncePrime,
                         cnoncePrime);
 
-                    if (digest.CompareTo(webToken.Response) == 0)
-                    {
-                        return 0;
-                    }
-                    else
-                    {
-                        return 2;
-                    }
+                    if (!HttpDigestAuthentication.FixedTimeEquals(digest, webToken.Response)) return 2;
+
+                    Context.Items[CONTEXT_VALIDATED_USER] = user;
+                    return 0;
                 }
                 else
                 {
@@ -319,7 +440,7 @@ namespace SharpOnvifServer.Security
         {
             Response.StatusCode = 401;
 
-            if (Options.Authentication.HasFlag(DigestAuthentication.HttpDigest))
+            if (Options.Onvif.Authentication.HasFlag(DigestAuthentication.HttpDigest))
             {
                 object authenticateWebDigestResult = Context.Items[CONTEXT_AUTHENTICATE_WEB_DIGEST_RESULT];
                 string opaque = Context.Items[CONTEXT_OPAQUE]?.ToString();
@@ -352,8 +473,8 @@ namespace SharpOnvifServer.Security
                 */
 
                 var now = DateTimeOffset.UtcNow;
-                var hashingAlgorithms = Options.HttpDigestAlgorithms == null ? new List<string>() { "MD5" } : Options.HttpDigestAlgorithms.ToList();
-                var allowedQop = Options.HttpDigestQop == null ? "auth" : string.Join(", ", Options.HttpDigestQop.ToList());
+                var hashingAlgorithms = Options.Onvif.HttpDigestAlgorithms == null ? new List<string>() { "MD5" } : Options.Onvif.HttpDigestAlgorithms.ToList();
+                var allowedQop = Options.Onvif.HttpDigestQop == null ? "auth" : string.Join(", ", Options.Onvif.HttpDigestQop.ToList());
 
                 foreach (var algorithm in hashingAlgorithms)
                 {
@@ -368,7 +489,7 @@ namespace SharpOnvifServer.Security
                             opaque,
                             allowedQop,
                             "",
-                            Options.HttpDigestUserHash,
+                            Options.Onvif.HttpDigestUserHash,
                             isStale);
                     Response.Headers.Append("WWW-Authenticate", wwwAuth);
                 }
@@ -381,40 +502,43 @@ namespace SharpOnvifServer.Security
             }
         }
 
-        private static async Task<SoapDigestAuth> GetSecurityHeaderFromSoapEnvelopeAsync(HttpRequest request)
+        /// <summary>
+        /// The credentials carried in the SOAP Security header, or null when the request carries
+        /// none that can be checked.
+        /// </summary>
+        /// <remarks>
+        /// Read straight off the body with an <see cref="XmlReader"/>, the way the rest of the
+        /// library reads Onvif messages. The whole body is waited for first: a body that arrives
+        /// in more than one read used to be parsed truncated, which threw rather than
+        /// authenticated.
+        /// </remarks>
+        private async Task<SoapDigestAuth> GetSecurityHeaderFromSoapEnvelopeAsync()
         {
-            ReadResult requestBodyInBytes = await request.BodyReader.ReadAsync().ConfigureAwait(false);
-            string body = Encoding.UTF8.GetString(requestBodyInBytes.Buffer.ToArray());
-            request.BodyReader.AdvanceTo(requestBodyInBytes.Buffer.Start, requestBodyInBytes.Buffer.End);
+            byte[] body = await ReadRequestBodyAsync().ConfigureAwait(false);
+            if (body == null || body.Length == 0) return null;
 
-            SoapDigestAuth security = null;
-            if (body?.Contains(@"http://www.w3.org/2003/05/soap-envelope") == true)
+            UsernameToken token;
+            try
             {
-                XNamespace ns = "http://www.w3.org/2003/05/soap-envelope";
-                var soapEnvelope = XDocument.Parse(body);
-                var headers = soapEnvelope.Descendants(ns + "Header").ToList();
-
-                foreach (var header in headers)
+                using (var stream = new MemoryStream(body, false))
+                using (XmlReader reader = SoapEnvelope.CreateReader(stream))
                 {
-                    var securityElement = header.Descendants().FirstOrDefault(x => x.Name.LocalName == "Security");
-                    if (securityElement != null)
-                    {
-                        var userNameTokenElement = securityElement.Descendants().FirstOrDefault(x => x.Name.LocalName == "UsernameToken");
-                        if (userNameTokenElement != null)
-                        {
-                            var serializer = new XmlSerializer(typeof(UsernameToken));
-                            using (var str = new System.IO.MemoryStream(Encoding.UTF8.GetBytes(userNameTokenElement.ToString())))
-                            {
-                                UsernameToken xml = (UsernameToken)serializer.Deserialize(str);
-                                security = new SoapDigestAuth(xml.Username, xml.Password.Text, xml.Nonce.Text, xml.Created);
-                            }
-                            break;
-                        }
-                    }
+                    token = WsUsernameToken.Read(reader);
                 }
             }
+            catch (XmlException)
+            {
+                // A body that is not well-formed XML carries no credentials to check. The
+                // endpoint answers it with a fault of its own; failing here would turn the same
+                // request into an error out of the authentication handler instead.
+                return null;
+            }
 
-            return security;
+            // A token missing the password or the nonce cannot be checked against anything, so it
+            // is no more a credential than an absent one.
+            if (token == null || token.Password == null || token.Nonce == null) return null;
+
+            return new SoapDigestAuth(token.Username, token.Password.Text, token.Nonce.Text, token.Created);
         }
     }
 }
